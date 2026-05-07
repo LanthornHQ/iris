@@ -13,31 +13,35 @@ import (
 )
 
 type mockBrowserDriver struct {
-	navigateCalled   int
-	clickCalled      int
-	typeCalled       int
-	scrollCalled     int
-	screenshotCalled int
-	waitCalled       int
-	closeCalled      int
-	lastNavigateURL  string
-	lastClickX       int
-	lastClickY       int
-	lastTypeText     string
-	lastTypeDelay    int
-	lastScrollDir    string
-	lastScrollClicks int
-	screenshotB64    string
-	screenshotW      int
-	screenshotH      int
-	screenshotErr    error
-	waitStable       bool
-	waitElapsedMs    int64
-	waitErr          error
-	navigateErr      error
-	clickErr         error
-	typeErr          error
-	scrollErr        error
+	navigateCalled    int
+	clickCalled       int
+	doubleClickCalled int
+	typeCalled        int
+	scrollCalled      int
+	screenshotCalled  int
+	waitCalled        int
+	closeCalled       int
+	lastNavigateURL   string
+	lastClickX        int
+	lastClickY        int
+	lastDoubleClickX  int
+	lastDoubleClickY  int
+	lastTypeText      string
+	lastTypeDelay     int
+	lastScrollDir     string
+	lastScrollClicks  int
+	screenshotB64     string
+	screenshotW       int
+	screenshotH       int
+	screenshotErr     error
+	waitStable        bool
+	waitElapsedMs     int64
+	waitErr           error
+	navigateErr       error
+	clickErr          error
+	doubleClickErr    error
+	typeErr           error
+	scrollErr         error
 }
 
 func (m *mockBrowserDriver) Navigate(_ context.Context, url string) error {
@@ -55,6 +59,13 @@ func (m *mockBrowserDriver) Click(_ context.Context, x, y int) error {
 	m.lastClickX = x
 	m.lastClickY = y
 	return m.clickErr
+}
+
+func (m *mockBrowserDriver) DoubleClick(_ context.Context, x, y int) error {
+	m.doubleClickCalled++
+	m.lastDoubleClickX = x
+	m.lastDoubleClickY = y
+	return m.doubleClickErr
 }
 
 func (m *mockBrowserDriver) Type(_ context.Context, text string, delayMs int) error {
@@ -191,7 +202,10 @@ func TestClick_DoubleClick(t *testing.T) {
 
 	_, err := tool.Execute(context.Background(), map[string]any{"x": float64(50), "y": float64(100), "button": "double"})
 	require.NoError(t, err)
-	assert.Equal(t, 2, drv.clickCalled)
+	assert.Equal(t, 0, drv.clickCalled)
+	assert.Equal(t, 1, drv.doubleClickCalled)
+	assert.Equal(t, 50, drv.lastDoubleClickX)
+	assert.Equal(t, 100, drv.lastDoubleClickY)
 }
 
 func TestClick_DriverError(t *testing.T) {

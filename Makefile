@@ -19,8 +19,11 @@ lint:
 test:
 	go test ./... -v -timeout 60s
 
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS=-ldflags="-X main.version=$(VERSION)"
+
 build:
-	go build -o $(BIN_DIR)/iris ./cmd/iris
+	go build $(LDFLAGS) -o $(BIN_DIR)/iris ./cmd/iris
 
 run: build
 	$(BIN_DIR)/iris

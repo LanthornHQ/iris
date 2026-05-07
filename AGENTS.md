@@ -49,7 +49,7 @@ The 9 tools: `navigate`, `screenshot`, `click`, `type_text`, `scroll`, `wait_for
 
 ### browser.Driver
 
-`browser.Driver` is an interface with 8 methods: `Navigate`, `Click`, `Type`, `Scroll`, `Screenshot`, `WaitForStable`, `Title`, `Close`. Implementation: `internal/browser/chromedp_driver.go`.
+`browser.Driver` is an interface with 9 methods: `Navigate`, `Click`, `DoubleClick`, `Type`, `Scroll`, `Screenshot`, `WaitForStable`, `Title`, `Close`. Implementation: `internal/browser/chromedp_driver.go`.
 
 ### Grounding Client
 

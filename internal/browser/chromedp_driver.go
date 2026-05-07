@@ -99,8 +99,19 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int) error {
 	defer cancel()
 	return chromedp.Run(actionCtx,
 		mouseMove(x, y),
-		mousePress(x, y),
-		mouseRelease(x, y),
+		mousePress(x, y, 1),
+		mouseRelease(x, y, 1),
+	)
+}
+
+func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
+	d.logger.InfoContext(ctx, "double_click", "x", x, "y", y)
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+	return chromedp.Run(actionCtx,
+		mouseMove(x, y),
+		mousePress(x, y, 2),
+		mouseRelease(x, y, 2),
 	)
 }
 
@@ -148,8 +159,7 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 	var jpgBuf bytes.Buffer
 	img, _, err := image.Decode(bytes.NewReader(buf))
 	if err != nil {
-		encoded := base64.StdEncoding.EncodeToString(buf)
-		return encoded, 0, 0, nil
+		return "", 0, 0, fmt.Errorf("screenshot: image decode failed: %w", err)
 	}
 
 	if err := jpeg.Encode(&jpgBuf, img, &jpeg.Options{Quality: 85}); err != nil {
@@ -246,14 +256,14 @@ func mouseMove(x, y int) chromedp.Action {
 	})
 }
 
-func mousePress(x, y int) chromedp.Action {
+func mousePress(x, y, clickCount int) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MousePressed, float64(x), float64(y)).WithButton(input.Left).WithClickCount(1).Do(ctx)
+		return input.DispatchMouseEvent(input.MousePressed, float64(x), float64(y)).WithButton(input.Left).WithClickCount(int64(clickCount)).Do(ctx)
 	})
 }
 
-func mouseRelease(x, y int) chromedp.Action {
+func mouseRelease(x, y, clickCount int) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(input.Left).WithClickCount(1).Do(ctx)
+		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(input.Left).WithClickCount(int64(clickCount)).Do(ctx)
 	})
 }

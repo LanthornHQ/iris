@@ -55,7 +55,7 @@ func (t *Sleep) Execute(ctx context.Context, args map[string]any) (any, error) {
 	select {
 	case <-ctx.Done():
 		t.Logger.InfoContext(ctx, "sleep cancelled")
-		return SleepResponse{Success: false}, ctx.Err()
+		return nil, ctx.Err()
 	case <-time.After(time.Duration(durationMs) * time.Millisecond):
 	}
 

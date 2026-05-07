@@ -17,6 +17,9 @@ import (
 	"github.com/LanthornHQ/iris/internal/tools"
 )
 
+// Version is set at build time via -ldflags="-X main.version=...".
+var version = "0.1.0"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "iris: %v\n", err)
@@ -25,7 +28,7 @@ func main() {
 }
 
 func run() error {
-	_ = godotenv.Load()
+	dotenvErr := godotenv.Load()
 
 	logLevel := slog.LevelDebug
 	if v := os.Getenv("IRIS_LOG_LEVEL"); v != "" {
@@ -45,7 +48,9 @@ func run() error {
 	}))
 	slog.SetDefault(logger)
 
-	version := "0.1.0"
+	if dotenvErr != nil {
+		logger.Warn("error loading .env file", "error", dotenvErr)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -43,6 +43,10 @@ func (m *mockDriver) Click(_ context.Context, x, y int) error {
 	return nil
 }
 
+func (m *mockDriver) DoubleClick(_ context.Context, _, _ int) error {
+	return nil
+}
+
 func (m *mockDriver) Type(_ context.Context, text string, _ int) error {
 	m.typeCalled++
 	m.lastTypeText = text

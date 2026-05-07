@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output
+*.out
+*.prof
+
+# Dependency directories
+vendor/
+data/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.venv/
+.claude/
+.claude/
+
+# Build
+bin/
+dist/
+/iris
+build_context.sh
+
+# Test/dev artifacts
+test_output*.log
+patch*.diff

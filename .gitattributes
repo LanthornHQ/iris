@@ -1,0 +1,30 @@
+# Normalize all text files to LF line endings in the repo
+* text=auto eol=lf
+
+# Explicitly declare files that should always be treated as text
+*.go text eol=lf
+*.md text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.sh text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+
+# Windows batch files need CRLF to work correctly on Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files — never normalize
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.exe binary
+*.zip binary
+*.tar binary
+*.gz binary

@@ -114,12 +114,13 @@ All integer helpers clamp to `[0, MaxInt32]`.
 
 ## Browser Driver
 
-`browser.Driver` is an interface with 8 methods:
+`browser.Driver` is an interface with 9 methods:
 
 | Method | Description |
 |--------|-------------|
 | `Navigate(ctx, url)` | Navigate to a URL, wait for `body` ready |
-| `Click(ctx, x, y)` | CDP mouse events: move → press → release |
+| `Click(ctx, x, y)` | CDP mouse events: move → press → release (single click) |
+| `DoubleClick(ctx, x, y)` | CDP mouse events with `ClickCount: 2` |
 | `Type(ctx, text, delayMs)` | Send keys via CDP `SendKeys` |
 | `Scroll(ctx, direction, clicks)` | `window.scrollBy` via CDP |
 | `Screenshot(ctx)` | Full-page JPEG screenshot via CDP |
@@ -136,11 +137,11 @@ Click uses three sequential CDP actions via `input.DispatchMouseEvent`:
 2. `MousePressed` with `Button: Left`, `ClickCount: 1`
 3. `MouseReleased` with `Button: Left`, `ClickCount: 1`
 
-Double-click repeats this sequence twice with a 50ms pause between.
+Double-click uses the same sequence with `ClickCount: 2` instead of repeating two single clicks.
 
 ### Screenshot Pipeline
 
-`FullScreenshot` returns raw PNG bytes from CDP. These are decoded via `image.Decode`, re-encoded as JPEG 85% quality, and base64-encoded for transport. If decode fails, raw bytes are base64-encoded as-is.
+`FullScreenshot` returns raw PNG bytes from CDP. These are decoded via `image.Decode`, re-encoded as JPEG 85% quality, and base64-encoded for transport. If decode fails, an error is returned (no silent fallback to zeroed dimensions).
 
 ---
 

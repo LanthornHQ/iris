@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg" // registers JPEG decoder — screenshots from driver are JPEG
 	"image/png"
 	"log/slog"
 	"os"

@@ -10,6 +10,7 @@ import (
 type Driver interface {
 	Navigate(ctx context.Context, url string) error
 	Click(ctx context.Context, x, y int) error
+	DoubleClick(ctx context.Context, x, y int) error
 	Type(ctx context.Context, text string, delayMs int) error
 	Scroll(ctx context.Context, direction string, clicks int) error
 	Screenshot(ctx context.Context) (string, int, int, error)

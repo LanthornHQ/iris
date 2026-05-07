@@ -80,22 +80,15 @@ func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
 	t.Logger.InfoContext(ctx, "click starting", "x", x, "y", y, "button", button)
 	start := time.Now()
 
-	clicks := 1
-	if button == "double" {
-		clicks = 2
-		button = "left"
-	}
+	isDoubleClick := button == "double"
 
-	for i := range clicks {
-		if err := t.Driver.Click(ctx, x, y); err != nil {
+	if isDoubleClick {
+		if err := t.Driver.DoubleClick(ctx, x, y); err != nil {
 			return nil, fmt.Errorf("click failed: %w", err)
 		}
-		if i < clicks-1 {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(50 * time.Millisecond):
-			}
+	} else {
+		if err := t.Driver.Click(ctx, x, y); err != nil {
+			return nil, fmt.Errorf("click failed: %w", err)
 		}
 	}
 

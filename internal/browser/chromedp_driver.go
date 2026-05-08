@@ -298,8 +298,6 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 		default:
 		}
 
-		time.Sleep(pollInterval)
-
 		actionCtx, cancel := d.withTimeout(ctx)
 		var count int
 		if err := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count)); err != nil {
@@ -315,6 +313,12 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 			return true, elapsed.Milliseconds(), nil
 		}
 		prevCount = count
+
+		select {
+		case <-ctx.Done():
+			return false, time.Since(start).Milliseconds(), ctx.Err()
+		case <-time.After(pollInterval):
+		}
 	}
 
 	elapsed := time.Since(start)

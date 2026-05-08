@@ -57,7 +57,7 @@ func (t *Navigate) Execute(ctx context.Context, args map[string]any) (any, error
 		return nil, errors.New("url is required")
 	}
 	parsed, parseErr := url.Parse(rawURL)
-	if parseErr != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if parseErr != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return nil, fmt.Errorf("invalid url %q: must include scheme and host (e.g. https://example.com)", rawURL)
 	}
 

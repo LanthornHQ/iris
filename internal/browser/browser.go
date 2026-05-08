@@ -9,7 +9,7 @@ import (
 // Driver controls a headless browser for coordinate-based interaction.
 type Driver interface {
 	Navigate(ctx context.Context, url string) error
-	Click(ctx context.Context, x, y int) error
+	Click(ctx context.Context, x, y int, button string) error
 	DoubleClick(ctx context.Context, x, y int) error
 	Type(ctx context.Context, text string, delayMs int) error
 	Scroll(ctx context.Context, direction string, clicks int) error

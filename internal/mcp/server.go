@@ -222,6 +222,8 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	const maxRequestBytes = 4 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	var req Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		s.logger.Error("HTTP request parse error", "remote", r.RemoteAddr, "error", err)
@@ -242,10 +244,12 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.processRequest(r.Context(), &req)
 
-	w.Header().Set("Content-Type", "application/json")
-	if resp != nil {
-		_ = json.NewEncoder(w).Encode(resp)
+	if resp == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func extractToolName(req Request) string {

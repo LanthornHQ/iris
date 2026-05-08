@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image/jpeg"
 	"log/slog"
@@ -192,14 +193,15 @@ func (d *chromedpDriver) Navigate(ctx context.Context, url string) error {
 	)
 }
 
-func (d *chromedpDriver) Click(ctx context.Context, x, y int) error {
-	d.logger.InfoContext(ctx, "click", "x", x, "y", y)
+func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) error {
+	d.logger.InfoContext(ctx, "click", "x", x, "y", y, "button", button)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
+	btn := mouseButton(button)
 	return chromedp.Run(actionCtx,
 		mouseMove(x, y),
-		mousePress(x, y, 1),
-		mouseRelease(x, y, 1),
+		mousePress(x, y, btn, 1),
+		mouseRelease(x, y, btn, 1),
 	)
 }
 
@@ -209,19 +211,40 @@ func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 	defer cancel()
 	return chromedp.Run(actionCtx,
 		mouseMove(x, y),
-		mousePress(x, y, doubleClickCount),
-		mouseRelease(x, y, doubleClickCount),
+		mousePress(x, y, input.Left, doubleClickCount),
+		mouseRelease(x, y, input.Left, doubleClickCount),
 	)
 }
 
 func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) error {
 	d.logger.InfoContext(ctx, "type_text", "text_len", len(text), "delay_ms", delayMs)
-	actionCtx, cancel := d.withTimeout(ctx)
-	defer cancel()
 
-	return chromedp.Run(actionCtx,
-		chromedp.SendKeys("document", text, chromedp.ByJSPath),
-	)
+	if delayMs <= 0 {
+		actionCtx, cancel := d.withTimeout(ctx)
+		defer cancel()
+		return chromedp.Run(actionCtx, chromedp.SendKeys("document", text, chromedp.ByJSPath))
+	}
+
+	delay := time.Duration(delayMs) * time.Millisecond
+	for _, ch := range text {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		actionCtx, cancel := d.withTimeout(ctx)
+		err := chromedp.Run(actionCtx, chromedp.SendKeys("document", string(ch), chromedp.ByJSPath))
+		cancel()
+		if err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil
 }
 
 func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks int) error {
@@ -300,7 +323,7 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 	cancel()
 
 	defer func() {
-		cleanupCtx, cleanupCancel := d.withTimeout(ctx)
+		cleanupCtx, cleanupCancel := context.WithTimeout(d.browserCtx, d.timeout)
 		_ = chromedp.Run(cleanupCtx, chromedp.Evaluate(cleanupJS, nil))
 		cleanupCancel()
 	}()
@@ -318,11 +341,14 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 
 		actionCtx, cancel := d.withTimeout(ctx)
 		var count int
-		if err := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count)); err != nil {
-			cancel()
-			return false, 0, fmt.Errorf("wait_for_stable: mutation check failed: %w", err)
-		}
+		checkErr := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count))
 		cancel()
+		if checkErr != nil {
+			if errors.Is(checkErr, context.DeadlineExceeded) {
+				continue
+			}
+			return false, 0, fmt.Errorf("wait_for_stable: mutation check failed: %w", checkErr)
+		}
 		iter++
 
 		if iter > 1 && count == prevCount {
@@ -365,7 +391,22 @@ func (d *chromedpDriver) Close() error {
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, d.timeout)
+	// Must derive from browserCtx so chromedp can locate its CDP session via context values.
+	// context.AfterFunc propagates caller cancellation without spawning a persistent goroutine.
+	tctx, cancel := context.WithTimeout(d.browserCtx, d.timeout)
+	stop := context.AfterFunc(ctx, cancel)
+	return tctx, func() { stop(); cancel() }
+}
+
+func mouseButton(button string) input.MouseButton {
+	switch button {
+	case "right":
+		return input.Right
+	case "middle":
+		return input.Middle
+	default:
+		return input.Left
+	}
 }
 
 func mouseMove(x, y int) chromedp.Action {
@@ -374,14 +415,14 @@ func mouseMove(x, y int) chromedp.Action {
 	})
 }
 
-func mousePress(x, y, clickCount int) chromedp.Action {
+func mousePress(x, y int, btn input.MouseButton, clickCount int) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MousePressed, float64(x), float64(y)).WithButton(input.Left).WithClickCount(int64(clickCount)).Do(ctx)
+		return input.DispatchMouseEvent(input.MousePressed, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
 	})
 }
 
-func mouseRelease(x, y, clickCount int) chromedp.Action {
+func mouseRelease(x, y int, btn input.MouseButton, clickCount int) chromedp.Action {
 	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(input.Left).WithClickCount(int64(clickCount)).Do(ctx)
+		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
 	})
 }

@@ -382,6 +382,31 @@ func (s *Server) handleToolCall(ctx context.Context, req *Request) *Response {
 		}
 	}
 
+	var resultMap map[string]any
+	if err := json.Unmarshal(resultJSON, &resultMap); err == nil {
+		if imgBase64, ok := resultMap["image_base64"].(string); ok && imgBase64 != "" {
+			delete(resultMap, "image_base64")
+			remainingJSON, _ := json.Marshal(resultMap)
+			return &Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Result: map[string]any{
+					"content": []map[string]any{
+						{
+							"type": "text",
+							"text": string(remainingJSON),
+						},
+						{
+							"type":     "image",
+							"data":     imgBase64,
+							"mimeType": "image/jpeg",
+						},
+					},
+				},
+			}
+		}
+	}
+
 	return &Response{
 		JSONRPC: "2.0",
 		ID:      req.ID,

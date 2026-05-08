@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -28,6 +29,7 @@ const (
 )
 
 type chromedpDriver struct {
+	mu         sync.Mutex
 	browserCtx context.Context
 	cancel     context.CancelFunc
 	logger     *slog.Logger
@@ -226,6 +228,8 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 }
 
 func (d *chromedpDriver) Navigate(ctx context.Context, url string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "navigate", "url", url)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -236,6 +240,8 @@ func (d *chromedpDriver) Navigate(ctx context.Context, url string) error {
 }
 
 func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "click", "x", x, "y", y, "button", button)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -248,6 +254,8 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) err
 }
 
 func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "double_click", "x", x, "y", y)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -259,6 +267,8 @@ func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 }
 
 func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "type_text", "text_len", len(text), "delay_ms", delayMs)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -288,6 +298,8 @@ func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) err
 }
 
 func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks int) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "scroll", "direction", direction, "clicks", clicks)
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -307,6 +319,8 @@ func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks in
 }
 
 func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.DebugContext(ctx, "screenshot starting")
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -335,7 +349,85 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 	return encoded, w, h, nil
 }
 
+func (d *chromedpDriver) checkMutationCount(ctx context.Context, checkJS string) (int, error) {
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+	var count int
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count)); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (d *chromedpDriver) reinitMutationObserver(ctx context.Context, observeJS string) error {
+	reinitCtx, reinitCancel := d.withTimeout(ctx)
+	defer reinitCancel()
+	return chromedp.Run(reinitCtx, chromedp.Evaluate(observeJS, nil))
+}
+
+func (d *chromedpDriver) pollStableIteration(
+	ctx context.Context,
+	start time.Time,
+	observeJS string,
+	checkJS string,
+	pollInterval time.Duration,
+	prevCount *int,
+	iter *int,
+) (bool, bool, int64, error) {
+	select {
+	case <-ctx.Done():
+		return false, false, time.Since(start).Milliseconds(), ctx.Err()
+	default:
+	}
+
+	count, checkErr := d.checkMutationCount(ctx, checkJS)
+	if checkErr != nil {
+		if errors.Is(checkErr, context.DeadlineExceeded) {
+			return false, true, 0, nil
+		}
+		return false, false, 0, fmt.Errorf("wait_for_stable: mutation check failed: %w", checkErr)
+	}
+
+	if count == -1 {
+		d.logger.DebugContext(ctx, "wait_for_stable: context/document refreshed, re-injecting mutation observer")
+		if err := d.reinitMutationObserver(ctx, observeJS); err != nil {
+			d.logger.DebugContext(ctx, "wait_for_stable: failed to re-inject observer", "error", err)
+		}
+		*prevCount = 0
+		*iter = 0
+		pollTimer := time.NewTimer(pollInterval)
+		select {
+		case <-ctx.Done():
+			pollTimer.Stop()
+			return false, false, time.Since(start).Milliseconds(), ctx.Err()
+		case <-pollTimer.C:
+		}
+		return false, true, 0, nil
+	}
+
+	*iter++
+
+	if *iter > 1 && count == *prevCount && count >= 0 {
+		elapsed := time.Since(start)
+		d.logger.InfoContext(ctx, "wait_for_stable: DOM stable", "iterations", *iter, "mutation_count", count, "elapsed_ms", elapsed.Milliseconds())
+		return true, false, elapsed.Milliseconds(), nil
+	}
+	*prevCount = count
+
+	pollTimer := time.NewTimer(pollInterval)
+	select {
+	case <-ctx.Done():
+		pollTimer.Stop()
+		return false, false, time.Since(start).Milliseconds(), ctx.Err()
+	case <-pollTimer.C:
+	}
+
+	return false, true, 0, nil
+}
+
 func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "wait_for_stable starting", "timeout_ms", timeoutMs, "threshold", threshold)
 	start := time.Now()
 	deadline := start.Add(time.Duration(timeoutMs) * time.Millisecond)
@@ -373,37 +465,15 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 	var prevCount int
 
 	for time.Now().Before(deadline) {
-		select {
-		case <-ctx.Done():
-			return false, time.Since(start).Milliseconds(), ctx.Err()
-		default:
+		stable, shouldContinue, elapsed, err := d.pollStableIteration(ctx, start, observeJS, checkJS, pollInterval, &prevCount, &iter)
+		if err != nil {
+			return false, 0, err
 		}
-
-		actionCtx, cancel := d.withTimeout(ctx)
-		var count int
-		checkErr := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count))
-		cancel()
-		if checkErr != nil {
-			if errors.Is(checkErr, context.DeadlineExceeded) {
-				continue
-			}
-			return false, 0, fmt.Errorf("wait_for_stable: mutation check failed: %w", checkErr)
+		if stable {
+			return true, elapsed, nil
 		}
-		iter++
-
-		if iter > 1 && count == prevCount && count >= 0 {
-			elapsed := time.Since(start)
-			d.logger.InfoContext(ctx, "wait_for_stable: DOM stable", "iterations", iter, "mutation_count", count, "elapsed_ms", elapsed.Milliseconds())
-			return true, elapsed.Milliseconds(), nil
-		}
-		prevCount = count
-
-		pollTimer := time.NewTimer(pollInterval)
-		select {
-		case <-ctx.Done():
-			pollTimer.Stop()
-			return false, time.Since(start).Milliseconds(), ctx.Err()
-		case <-pollTimer.C:
+		if !shouldContinue {
+			return false, elapsed, nil
 		}
 	}
 
@@ -413,6 +483,8 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 }
 
 func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.DebugContext(ctx, "get title starting")
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
@@ -425,6 +497,8 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 }
 
 func (d *chromedpDriver) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.logger.Info("closing browser")
 	d.cancel()
 	return nil

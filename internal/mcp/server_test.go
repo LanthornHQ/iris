@@ -142,3 +142,81 @@ func TestProcessRequestParamsWithNilArguments(t *testing.T) {
 		t.Error("expected error for unknown tool, got success")
 	}
 }
+
+type mockImageTool struct{}
+
+func (t *mockImageTool) Name() string { return "image_tool" }
+func (t *mockImageTool) Description() string { return "returns a fake image" }
+func (t *mockImageTool) ParametersSchema() map[string]any { return map[string]any{} }
+func (t *mockImageTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+	return map[string]any{
+		"success":      true,
+		"image_base64": "fake_base64_data",
+		"width":        100,
+		"height":       200,
+	}, nil
+}
+
+func TestHandleToolCallWithImageSeparation(t *testing.T) {
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
+	s.RegisterTool(&mockImageTool{})
+
+	params := json.RawMessage(`{"name":"image_tool","arguments":{}}`)
+	resp := s.processRequest(context.TODO(), &Request{
+		JSONRPC: "2.0",
+		ID:      6,
+		Method:  "tools/call",
+		Params:  params,
+	})
+
+	if resp == nil {
+		t.Fatal("expected response for tools/call")
+	}
+	if resp.Error != nil {
+		t.Fatalf("unexpected error: %v", resp.Error)
+	}
+
+	data, err := json.Marshal(resp.Result)
+	if err != nil {
+		t.Fatalf("failed to marshal result: %v", err)
+	}
+	var decodedResult struct {
+		Content []map[string]any `json:"content"`
+	}
+	if err := json.Unmarshal(data, &decodedResult); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	content := decodedResult.Content
+
+	if len(content) != 2 {
+		t.Fatalf("expected 2 content blocks (text and image), got %d", len(content))
+	}
+
+	// Verify text block (metadata)
+	textBlock := content[0]
+	if textBlock["type"] != "text" {
+		t.Errorf("expected first block type to be 'text', got %v", textBlock["type"])
+	}
+	var meta map[string]any
+	if err := json.Unmarshal([]byte(textBlock["text"].(string)), &meta); err != nil {
+		t.Fatalf("failed to unmarshal text block: %v", err)
+	}
+	if meta["image_base64"] != nil {
+		t.Errorf("expected 'image_base64' to be removed from metadata, but it exists")
+	}
+	if meta["success"] != true || meta["width"].(float64) != 100 {
+		t.Errorf("metadata missing fields: %+v", meta)
+	}
+
+	// Verify image block
+	imageBlock := content[1]
+	if imageBlock["type"] != "image" {
+		t.Errorf("expected second block type to be 'image', got %v", imageBlock["type"])
+	}
+	if imageBlock["data"] != "fake_base64_data" {
+		t.Errorf("expected image data 'fake_base64_data', got %v", imageBlock["data"])
+	}
+	if imageBlock["mimeType"] != "image/jpeg" {
+		t.Errorf("expected mimeType 'image/jpeg', got %v", imageBlock["mimeType"])
+	}
+}

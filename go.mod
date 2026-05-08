@@ -1,6 +1,6 @@
 module github.com/LanthornHQ/iris
 
-go 1.26.1
+go 1.26.3
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20241022234722-4d5d5faf59fb

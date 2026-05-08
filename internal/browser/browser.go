@@ -43,8 +43,8 @@ type Config struct {
 
 const (
 	envFalse         = "false"
-	defaultWidth     = 1280
-	defaultHeight    = 720
+	defaultWidth     = 1920
+	defaultHeight    = 1080
 	defaultTimeoutMs = 30000
 )
 

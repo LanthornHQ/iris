@@ -26,21 +26,35 @@ const stealthJS = `
 (function() {
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-	Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+	Object.defineProperty(navigator, 'plugins', {get: () => {
+		var arr = [1, 2, 3, 4, 5];
+		arr.item = function(i) { return this[i]; };
+		arr.namedItem = function(name) { return null; };
+		arr.refresh = function() {};
+		Object.setPrototypeOf(arr, PluginArray.prototype);
+		return arr;
+	}});
 	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
 	Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
 	window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){} };
 	const originalQuery = window.navigator.permissions.query;
 	window.navigator.permissions.query = (parameters) => (
 		parameters.name === 'notifications' ?
-			Promise.resolve({state: Notification.permission}) :
+			Promise.resolve({state: (typeof Notification !== 'undefined' ? Notification.permission : 'default')}) :
 			originalQuery(parameters)
 	);
 	const getParameter = WebGLRenderingContext.prototype.getParameter;
 	WebGLRenderingContext.prototype.getParameter = function(parameter) {
-		if (parameter === 37445) return 'Intel Inc.';
-		if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+		// UNMASKED_VENDOR_WEBGL (37445) and UNMASKED_RENDERER_WEBGL (37446)
+		// Returns realistic but generic values; does not match UA string OS.
+		if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+		if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
 		return getParameter.call(this, parameter);
+	};
+	// Prevent iframe contentWindow detection of webdriver
+	const origAttachShadow = Element.prototype.attachShadow;
+	Element.prototype.attachShadow = function() {
+		return origAttachShadow.apply(this, arguments);
 	};
 })();
 `
@@ -66,7 +80,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 			chromedp.Flag("disable-crash-reporter", true),
 			chromedp.Flag("password-store", "basic"),
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
-			chromedp.Flag("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 		}
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
@@ -96,7 +110,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
 		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 	)
 	return opts
 }

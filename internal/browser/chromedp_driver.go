@@ -200,6 +200,64 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 	}
 }
 
+func buildCookies(initial []CookieDef) []*network.CookieParam {
+	var cookies []*network.CookieParam
+
+	for _, c := range initial {
+		path := c.Path
+		if path == "" {
+			path = "/"
+		}
+		cookies = append(cookies, &network.CookieParam{
+			Name:   c.Name,
+			Value:  c.Value,
+			Domain: c.Domain,
+			Path:   path,
+		})
+	}
+
+	// Always inject default bypass cookies for Google and YouTube domains to prevent consent overlays
+	googleDomains := []string{
+		".google.com",
+		".google.de",
+		".google.co.uk",
+		".google.fr",
+		".google.it",
+		".google.es",
+		".google.nl",
+		".google.co.jp",
+		".google.ca",
+		".google.com.br",
+		".google.pl",
+		".google.ch",
+		".google.at",
+		".google.be",
+		".google.cz",
+		".google.se",
+		".google.no",
+		".google.dk",
+		".google.fi",
+		".youtube.com",
+	}
+	for _, domain := range googleDomains {
+		cookies = append(cookies,
+			&network.CookieParam{
+				Name:   "SOCS",
+				Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
+				Domain: domain,
+				Path:   "/",
+			},
+			&network.CookieParam{
+				Name:   "CONSENT",
+				Value:  "PENDING+999",
+				Domain: domain,
+				Path:   "/",
+			},
+		)
+	}
+	return cookies
+}
+
 func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
 	allocatorOpts := buildAllocatorOpts(cfg)
 
@@ -246,63 +304,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		)
 	}
 
-	var cookies []*network.CookieParam
-
-	if len(cfg.InitialCookies) > 0 {
-		for _, c := range cfg.InitialCookies {
-			path := c.Path
-			if path == "" {
-				path = "/"
-			}
-			cookies = append(cookies, &network.CookieParam{
-				Name:   c.Name,
-				Value:  c.Value,
-				Domain: c.Domain,
-				Path:   path,
-			})
-		}
-	}
-
-	// Always inject default bypass cookies for Google and YouTube domains to prevent consent overlays
-	googleDomains := []string{
-		".google.com",
-		".google.de",
-		".google.co.uk",
-		".google.fr",
-		".google.it",
-		".google.es",
-		".google.nl",
-		".google.co.jp",
-		".google.ca",
-		".google.com.br",
-		".google.pl",
-		".google.ch",
-		".google.at",
-		".google.be",
-		".google.cz",
-		".google.se",
-		".google.no",
-		".google.dk",
-		".google.fi",
-		".youtube.com",
-	}
-	for _, domain := range googleDomains {
-		cookies = append(cookies,
-			&network.CookieParam{
-				Name:   "SOCS",
-				Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
-				Domain: domain,
-				Path:   "/",
-			},
-			&network.CookieParam{
-				Name:   "CONSENT",
-				Value:  "PENDING+999",
-				Domain: domain,
-				Path:   "/",
-			},
-		)
-	}
-
+	cookies := buildCookies(cfg.InitialCookies)
 	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
 		return network.SetCookies(cookies).Do(ctx)
 	}))
@@ -566,6 +568,31 @@ type keySegment struct {
 	modifier input.Modifier
 }
 
+func tryParseSpecial(runes []rune, i int) (keySegment, int, bool) {
+	n := len(runes)
+	if runes[i] != '{' {
+		return keySegment{}, i, false
+	}
+	if i+1 < n && runes[i+1] == '{' {
+		const braceEscapeLen = 2
+		return keySegment{keys: "{"}, i + braceEscapeLen, true
+	}
+	closeIdx := -1
+	for j := i + 1; j < n; j++ {
+		if runes[j] == '}' {
+			closeIdx = j
+			break
+		}
+	}
+	if closeIdx != -1 {
+		name := strings.ToLower(string(runes[i+1 : closeIdx]))
+		if seg, ok := resolveSpecialKey(name); ok {
+			return seg, closeIdx + 1, true
+		}
+	}
+	return keySegment{}, i, false
+}
+
 func parseSpecialKeys(text string) []keySegment {
 	var parts []keySegment
 	runes := []rune(text)
@@ -573,33 +600,16 @@ func parseSpecialKeys(text string) []keySegment {
 	i := 0
 
 	for i < n {
-		if i+1 < n && runes[i] == '{' && runes[i+1] == '{' {
-			parts = append(parts, keySegment{keys: "{"})
-			i += 2
-			continue
-		}
 		if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
 			parts = append(parts, keySegment{keys: "}"})
 			i += 2
 			continue
 		}
 
-		if runes[i] == '{' {
-			closeIdx := -1
-			for j := i + 1; j < n; j++ {
-				if runes[j] == '}' {
-					closeIdx = j
-					break
-				}
-			}
-			if closeIdx != -1 {
-				name := strings.ToLower(string(runes[i+1 : closeIdx]))
-				if seg, ok := resolveSpecialKey(name); ok {
-					parts = append(parts, seg)
-					i = closeIdx + 1
-					continue
-				}
-			}
+		if seg, nextIdx, ok := tryParseSpecial(runes, i); ok {
+			parts = append(parts, seg)
+			i = nextIdx
+			continue
 		}
 
 		parts = append(parts, keySegment{keys: string(runes[i])})
@@ -647,4 +657,3 @@ func resolveSpecialKey(name string) (keySegment, bool) {
 	}
 	return keySegment{}, false
 }
-

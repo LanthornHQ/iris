@@ -256,4 +256,3 @@ func TestParseSpecialKeys(t *testing.T) {
 		})
 	}
 }
-

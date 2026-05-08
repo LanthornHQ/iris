@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 )
@@ -9,7 +10,7 @@ import (
 // Driver controls a headless browser for coordinate-based interaction.
 type Driver interface {
 	Navigate(ctx context.Context, url string) error
-	Click(ctx context.Context, x, y int) error
+	Click(ctx context.Context, x, y int, button string) error
 	DoubleClick(ctx context.Context, x, y int) error
 	Type(ctx context.Context, text string, delayMs int) error
 	Scroll(ctx context.Context, direction string, clicks int) error
@@ -19,14 +20,23 @@ type Driver interface {
 	Close() error
 }
 
+// CookieDef represents a browser cookie to inject at startup.
+type CookieDef struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain"`
+	Path   string `json:"path"`
+}
+
 type Config struct {
-	Headless   bool
-	Width      int
-	Height     int
-	ChromePath string
-	NoSandbox  bool
-	TimeoutMs  int
-	Stealth    bool
+	Headless       bool
+	Width          int
+	Height         int
+	ChromePath     string
+	NoSandbox      bool
+	TimeoutMs      int
+	Stealth        bool
+	InitialCookies []CookieDef
 }
 
 const (
@@ -61,6 +71,12 @@ func ConfigFromEnv() Config {
 	}
 	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
 		cfg.Stealth = false
+	}
+	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
+		var cookies []CookieDef
+		if err := json.Unmarshal([]byte(v), &cookies); err == nil {
+			cfg.InitialCookies = cookies
+		}
 	}
 	return cfg
 }

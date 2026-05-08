@@ -87,7 +87,7 @@ func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
 			return nil, fmt.Errorf("click failed: %w", err)
 		}
 	} else {
-		if err := t.Driver.Click(ctx, x, y); err != nil {
+		if err := t.Driver.Click(ctx, x, y, button); err != nil {
 			return nil, fmt.Errorf("click failed: %w", err)
 		}
 	}

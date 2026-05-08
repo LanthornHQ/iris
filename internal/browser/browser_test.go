@@ -36,7 +36,7 @@ func (m *mockDriver) Title(_ context.Context) (string, error) {
 	return "Mock Title", nil
 }
 
-func (m *mockDriver) Click(_ context.Context, x, y int) error {
+func (m *mockDriver) Click(_ context.Context, x, y int, _ string) error {
 	m.clickCalled++
 	m.lastClickX = x
 	m.lastClickY = y
@@ -127,7 +127,7 @@ func TestMockDriver_Navigate(t *testing.T) {
 
 func TestMockDriver_Click(t *testing.T) {
 	md := &mockDriver{}
-	err := md.Click(context.Background(), 100, 200)
+	err := md.Click(context.Background(), 100, 200, "left")
 	require.NoError(t, err)
 	assert.Equal(t, 1, md.clickCalled)
 	assert.Equal(t, 100, md.lastClickX)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -61,6 +62,10 @@ func run() error {
 		logger.Info("received signal, shutting down", "signal", sig)
 		cancel()
 	}()
+
+	if apiKey, set := os.LookupEnv("IRIS_API_KEY"); set && apiKey == "" {
+		return errors.New("IRIS_API_KEY is set but empty; unset it to disable auth or provide a non-empty key")
+	}
 
 	browserCfg := browser.ConfigFromEnv()
 	driver, err := browser.NewDriver(ctx, logger, browserCfg)

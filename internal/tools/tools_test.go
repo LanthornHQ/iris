@@ -54,7 +54,7 @@ func (m *mockBrowserDriver) Title(_ context.Context) (string, error) {
 	return "Mock Title", nil
 }
 
-func (m *mockBrowserDriver) Click(_ context.Context, x, y int) error {
+func (m *mockBrowserDriver) Click(_ context.Context, x, y int, _ string) error {
 	m.clickCalled++
 	m.lastClickX = x
 	m.lastClickY = y

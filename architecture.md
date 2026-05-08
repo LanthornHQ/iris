@@ -240,7 +240,9 @@ iris/
 │       ├── get_datetime.go          GetDatetime tool
 │       └── tools_test.go           Tool unit tests (mock Driver + mock GroundingClient)
 ├── .github/workflows/ci.yml        CI: build + lint + test on Linux
-├── Dockerfile                       Chrome + iris binary (no Xvfb)
+├── .github/workflows/docker-push.yml CI/CD: build + push Docker image to GHCR on merges/tags
+├── Dockerfile                       Chrome + iris binary (with Xvfb and entrypoint.sh)
+├── entrypoint.sh                    Container startup script initializing Xvfb and starting server
 ├── Makefile
 ├── .golangci.yml
 └── AGENTS.md
@@ -288,6 +290,7 @@ All env vars use the `IRIS_*` prefix. See `.env.example` for the full list with 
 | `IRIS_ADDR` | `0.0.0.0:3000` | HTTP listen address |
 | `IRIS_API_KEY` | (none) | API key for HTTP transport |
 | `IRIS_HEADLESS` | `true` | Run Chrome in headless mode |
+| `IRIS_STEALTH` | `true` | Enable bot detection bypass measures (navigator / WebGL overrides) |
 | `IRIS_CHROME_PATH` | (auto) | Path to Chrome binary |
 | `IRIS_NO_SANDBOX` | `true` | Chrome `--no-sandbox` flag |
 | `IRIS_TOOL_TIMEOUT` | `30` | Per-tool-call timeout (seconds) |

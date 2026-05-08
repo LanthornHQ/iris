@@ -39,35 +39,84 @@ var stealthHWOptions = []int{4, 8, 16}
 // to avoid sessions sharing an identical browser signature.
 func buildStealthJS(hwConcurrency, deviceMemory int) string {
 	return fmt.Sprintf(`(function() {
+	// --- navigator properties ---
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+	Object.defineProperty(navigator, 'language',  {get: () => 'en-US'});
 	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
+	Object.defineProperty(navigator, 'deviceMemory',        {get: () => %d});
+
+	// Plugins: real Chrome always shows at least the PDF plugin.
 	Object.defineProperty(navigator, 'plugins', {get: () => {
-		var arr = [1, 2, 3, 4, 5];
+		var pdf = {name:'Chrome PDF Plugin',filename:'internal-pdf-viewer',description:'Portable Document Format',length:1};
+		var arr = [pdf];
 		arr.item = function(i) { return this[i]; };
-		arr.namedItem = function(name) { return null; };
+		arr.namedItem = function(n) { for(var i=0;i<this.length;i++){if(this[i].name===n)return this[i];} return null; };
 		arr.refresh = function() {};
 		Object.setPrototypeOf(arr, PluginArray.prototype);
 		return arr;
 	}});
-	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
-	Object.defineProperty(navigator, 'deviceMemory', {get: () => %d});
-	window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){} };
-	const originalQuery = window.navigator.permissions.query;
+
+	// MimeTypes: match the PDF plugin above.
+	Object.defineProperty(navigator, 'mimeTypes', {get: () => {
+		var pdf = {type:'application/pdf',suffixes:'pdf',description:'Portable Document Format',enabledPlugin:navigator.plugins[0]};
+		var arr = [pdf];
+		arr.item = function(i) { return this[i]; };
+		arr.namedItem = function(t) { for(var i=0;i<this.length;i++){if(this[i].type===t)return this[i];} return null; };
+		Object.setPrototypeOf(arr, MimeTypeArray.prototype);
+		return arr;
+	}});
+
+	// --- window dimensions: headless reports outerHeight=0 ---
+	try {
+		Object.defineProperty(window, 'outerWidth',  {get: () => window.innerWidth});
+		Object.defineProperty(window, 'outerHeight', {get: () => window.innerHeight + 85});
+	} catch(e) {}
+
+	// --- window.chrome: detectors inspect app, runtime, csi ---
+	window.chrome = {
+		app: {
+			isInstalled: false,
+			InstallState: {DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'},
+			RunningState:  {CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'},
+			getDetails:    function(){},
+			getIsInstalled:function(){},
+			installState:  function(){},
+		},
+		runtime: {
+			connect:     function(){return{disconnect:function(){},postMessage:function(){},onMessage:{addListener:function(){}},onDisconnect:{addListener:function(){}}};},
+			sendMessage: function(){},
+			getManifest: function(){return {};},
+			id:          undefined,
+			OnInstalledReason: {CHROME_UPDATE:'chrome_update',INSTALL:'install',SHARED_MODULE_UPDATE:'shared_module_update',UPDATE:'update'},
+			PlatformOs:        {ANDROID:'android',CROS:'cros',LINUX:'linux',MAC:'mac',OPENBSD:'openbsd',WIN:'win'},
+			PlatformArch:      {ARM:'arm','ARM64':'arm64',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64'},
+			RequestUpdateCheckStatus: {NO_UPDATE:'no_update',THROTTLED:'throttled',UPDATE_AVAILABLE:'update_available'},
+		},
+		loadTimes: function(){},
+		csi:       function(){return {startE:Date.now(),onloadT:Date.now(),pageT:Date.now(),tran:15};},
+	};
+
+	// --- Permissions ---
+	const _origQuery = window.navigator.permissions.query;
 	window.navigator.permissions.query = (parameters) => (
 		parameters.name === 'notifications' ?
 			Promise.resolve({state: (typeof Notification !== 'undefined' ? Notification.permission : 'default')}) :
-			originalQuery(parameters)
+			_origQuery(parameters)
 	);
-	const getParameter = WebGLRenderingContext.prototype.getParameter;
-	WebGLRenderingContext.prototype.getParameter = function(parameter) {
-		if (parameter === 37445) return 'Google Inc. (NVIDIA)';
-		if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
-		return getParameter.call(this, parameter);
-	};
-	const origAttachShadow = Element.prototype.attachShadow;
-	Element.prototype.attachShadow = function() {
-		return origAttachShadow.apply(this, arguments);
-	};
+
+	// --- WebGL: patch both WebGL1 and WebGL2 contexts ---
+	function patchWebGL(ctx) {
+		if (!ctx) return;
+		const orig = ctx.prototype.getParameter;
+		ctx.prototype.getParameter = function(parameter) {
+			if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+			if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
+			return orig.call(this, parameter);
+		};
+	}
+	patchWebGL(WebGLRenderingContext);
+	if (typeof WebGL2RenderingContext !== 'undefined') patchWebGL(WebGL2RenderingContext);
 })();`, hwConcurrency, deviceMemory)
 }
 
@@ -93,6 +142,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 			chromedp.Flag("password-store", "basic"),
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
 			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
+			chromedp.Flag("lang", "en-US"),
 		}
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
@@ -123,6 +173,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-crash-reporter", true),
 		chromedp.Flag("password-store", "basic"),
 		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
+		chromedp.Flag("lang", "en-US"),
 	)
 	return opts
 }

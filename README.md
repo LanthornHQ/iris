@@ -52,32 +52,15 @@ Iris is designed to be intentionally thin and stateless. It executes low-level v
 | `navigate` | Navigate the browser to a URL |
 | `screenshot` | Capture a screenshot of the current viewport (JPEG, base64) |
 | `click` | Click at viewport coordinates; supports double-click |
-| `type_text` | Type text into the focused element, or into an element found by description (uses vision grounding) |
+| `type_text` | Type text into the currently focused element |
 | `scroll` | Scroll the page up or down by a number of steps |
 | `wait_for_stable` | Poll screenshots until the page is visually stable (no changes between consecutive frames) |
-| `verify_screen` | Ask the vision model a yes/no question about the current page state |
 | `sleep` | Sleep for a fixed number of milliseconds |
 | `get_datetime` | Get the current date and time on the execution node |
-
-### Vision Grounding: `type_text` with description
-
-When `type_text` is called with a `description` parameter, it takes a screenshot, uses the vision grounding model to locate the element, clicks it to focus, waits briefly, then types the text. When `description` is omitted, it types into whatever element currently has focus.
-
-The model returns a single center point `[x, y]`. Iris expands it into a bounding box using `IRIS_GROUNDING_POINT_CLICK_RADIUS` (default: 15 px) and clicks the center.
 
 ### Click Annotation
 
 When `IRIS_ANNOTATE_CLICKS=1`, the `click` and `type_text` tools draw a red dot at the click coordinates on the post-click screenshot. This helps the agent visually verify where it clicked.
-
-### Screen Verification: `verify_screen`
-
-`verify_screen` asks the vision model a yes/no question and returns:
-
-```json
-{"answer": "yes", "evidence": "A Save dialog with an OK button is visible", "bbox": [400, 200, 1000, 600]}
-```
-
-It accepts either a fresh screenshot (taken automatically) or a pre-captured `image_base64` from the caller.
 
 ---
 
@@ -133,24 +116,16 @@ make docker/stop
 ### Typical agent interaction
 
 ```
-Agent: "I need to fill in the search box"
-  → type_text(text="hello world", description="the search box")
-  ← {success: true, x: 640, y: 200, method: "vision", confidence: 0.5}
-
-Agent: "Did the results appear?"
-  → verify_screen(question="Are search results visible on the page?")
-  ← {answer: "yes", evidence: "A list of results is displayed below the search box", x1: 100, y1: 300, x2: 1820, y2: 900}
-```
-
-Or a lower-level coordinate-based flow:
-
-```
 Agent: "Take a screenshot"
   → screenshot()
   ← {image_base64: "...", width: 1920, height: 1080}
 
-Agent: "Click at (500, 400)"
+Agent: "Click the search input box at (500, 400)"
   → click(x=500, y=400)
+  ← {success: true, image_base64: "..."}
+
+Agent: "Type text into the active input"
+  → type_text(text="hello world")
   ← {success: true, image_base64: "..."}
 
 Agent: "Wait for the page to settle"
@@ -211,9 +186,7 @@ CI runs build + lint + unit tests on Linux via GitHub Actions.
 
 ## Coordinate System
 
-All coordinates are **viewport pixels** — (0,0) is the top-left corner of the browser viewport. Coordinates returned by grounding are center-points of bounding boxes, ready to pass directly to `click`.
-
-The grounding model uses a normalized 0–1000 coordinate space internally. Iris maps these back to pixel coordinates based on the actual screenshot dimensions.
+All coordinates are **viewport pixels** — (0,0) is the top-left corner of the browser viewport.
 
 ---
 
@@ -223,13 +196,9 @@ The grounding model uses a normalized 0–1000 coordinate space internally. Iris
 
 **Screenshots are blank** — Make sure `IRIS_HEADLESS=true` (the default). If running in a Docker container, ensure `--shm-size=2g` or `--no-sandbox` is set.
 
-**`type_text` with description fails** — Check that `IRIS_GROUNDING_URL` is set and the grounding model is accessible.
-
-**`verify_screen` always returns "no"** — Confirm the question is unambiguous. The model receives the same screenshot as grounding, so if `screenshot()` looks correct, the issue is likely question phrasing or model quality.
-
 ---
 
-For architecture details, transport specifics, and the grounding pipeline: [architecture.md](architecture.md).
+For architecture details, transport specifics, and tool specifications: [architecture.md](architecture.md).
 
 ## License
 

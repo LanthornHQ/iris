@@ -16,6 +16,22 @@ import (
 	"time"
 )
 
+const (
+	defaultThickness  = 4
+	maxLabelLen       = 80
+	labelOffset       = 28
+	minLabelY         = 2
+	labelBelowPadding = 4
+	labelXPadding     = 2
+	charWidth         = 7
+	labelWidthPadding = 8
+	labelHeight       = 24
+	labelBGAlpha      = 200
+	charXPadding      = 4
+	charYPadding      = 4
+	fontWidthBitShift = 6
+)
+
 var overlayDir = sync.OnceValue(func() string {
 	if dir := os.Getenv("IRIS_SCREENSHOT_DIR"); dir != "" {
 		return dir
@@ -39,20 +55,20 @@ func saveVerifyOverlay(logger *slog.Logger, screenshotB64 string, imgW, imgH int
 	}
 
 	if bbox.X2 > bbox.X1 && bbox.Y2 > bbox.Y1 {
-		drawThickRect(rgba, image.Rect(bbox.X1, bbox.Y1, bbox.X2, bbox.Y2), 4, boxColor)
+		drawThickRect(rgba, image.Rect(bbox.X1, bbox.Y1, bbox.X2, bbox.Y2), defaultThickness, boxColor)
 	}
 
 	label := fmt.Sprintf("VLM: %s | %s", answer, evidence)
-	if len(label) > 80 {
-		label = label[:80] + "..."
+	if len(label) > maxLabelLen {
+		label = label[:maxLabelLen] + "..."
 	}
-	labelY := bbox.Y1 - 28
-	if labelY < 2 {
-		labelY = bbox.Y2 + 4
+	labelY := bbox.Y1 - labelOffset
+	if labelY < minLabelY {
+		labelY = bbox.Y2 + labelBelowPadding
 	}
-	drawLabelBG(rgba, 2, labelY, len(label)*7+8, 24, color.RGBA{0, 0, 0, 200})
+	drawLabelBG(rgba, labelXPadding, labelY, len(label)*charWidth+labelWidthPadding, labelHeight, color.RGBA{0, 0, 0, labelBGAlpha})
 	for i, ch := range label {
-		drawChar(rgba, 4+i*7, labelY+4, ch, boxColor)
+		drawChar(rgba, charXPadding+i*charWidth, labelY+charYPadding, ch, boxColor)
 	}
 
 	ts := time.Now().Format("20060102-150405")
@@ -128,7 +144,7 @@ func drawChar(dst *image.RGBA, x, y int, ch rune, c color.Color) {
 	}
 	for row := range 12 {
 		for col := range 7 {
-			if glyph[row]&(1<<(6-col)) != 0 {
+			if glyph[row]&(1<<(fontWidthBitShift-col)) != 0 {
 				px := x + col
 				py := y + row
 				if px >= dst.Bounds().Min.X && px < dst.Bounds().Max.X && py >= dst.Bounds().Min.Y && py < dst.Bounds().Max.Y {

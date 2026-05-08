@@ -14,6 +14,15 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
+const (
+	defaultJPEGQuality    = 85
+	defaultPollInterval   = 200 * time.Millisecond
+	defaultTimeout        = 30 * time.Second
+	doubleClickCount      = 2
+	scrollDeltaPerClick   = 300
+	fullScreenshotQuality = 100
+)
+
 type chromedpDriver struct {
 	browserCtx context.Context
 	cancel     context.CancelFunc
@@ -127,7 +136,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		logger.Debug("chromedp", "msg", fmt.Sprintf(s, i...))
 	}))
 
-	timeout := 30 * time.Second
+	timeout := defaultTimeout
 	if cfg.TimeoutMs > 0 {
 		timeout = time.Duration(cfg.TimeoutMs) * time.Millisecond
 	}
@@ -196,8 +205,8 @@ func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 	defer cancel()
 	return chromedp.Run(actionCtx,
 		mouseMove(x, y),
-		mousePress(x, y, 2),
-		mouseRelease(x, y, 2),
+		mousePress(x, y, doubleClickCount),
+		mouseRelease(x, y, doubleClickCount),
 	)
 }
 
@@ -219,9 +228,9 @@ func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks in
 	var delta int
 	switch direction {
 	case "up":
-		delta = -clicks * 300
+		delta = -clicks * scrollDeltaPerClick
 	default:
-		delta = clicks * 300
+		delta = clicks * scrollDeltaPerClick
 	}
 
 	js := fmt.Sprintf("window.scrollBy(0, %d)", delta)
@@ -237,7 +246,7 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 
 	var buf []byte
 	if err := chromedp.Run(actionCtx,
-		chromedp.FullScreenshot(&buf, 85),
+		chromedp.FullScreenshot(&buf, defaultJPEGQuality),
 	); err != nil {
 		return "", 0, 0, fmt.Errorf("screenshot failed: %w", err)
 	}
@@ -287,7 +296,7 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 		cleanupCancel()
 	}()
 
-	pollInterval := 200 * time.Millisecond
+	pollInterval := defaultPollInterval
 	iter := 0
 	var prevCount int
 

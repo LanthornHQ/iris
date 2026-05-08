@@ -10,7 +10,12 @@ import (
 	"image/jpeg"
 )
 
-const clickDotRadius = 12
+const (
+	clickDotRadius     = 12
+	ringBorderWidth    = 2
+	crossLengthPadding = 4
+	defaultJPEGQuality = 85
+)
 
 type dotInfo struct {
 	x int
@@ -19,14 +24,14 @@ type dotInfo struct {
 }
 
 func drawRing(rgba *image.RGBA, px, py, radius int, c color.Color) {
-	for dy := -(radius + 2); dy <= radius+2; dy++ {
-		for dx := -(radius + 2); dx <= radius+2; dx++ {
+	for dy := -(radius + ringBorderWidth); dy <= radius+ringBorderWidth; dy++ {
+		for dx := -(radius + ringBorderWidth); dx <= radius+ringBorderWidth; dx++ {
 			cx, cy := px+dx, py+dy
 			if cx < rgba.Bounds().Min.X || cx >= rgba.Bounds().Max.X || cy < rgba.Bounds().Min.Y || cy >= rgba.Bounds().Max.Y {
 				continue
 			}
 			dist2 := dx*dx + dy*dy
-			outerR2 := (radius + 2) * (radius + 2)
+			outerR2 := (radius + ringBorderWidth) * (radius + ringBorderWidth)
 			innerR2 := (radius - 1) * (radius - 1)
 			if dist2 <= outerR2 && dist2 >= innerR2 {
 				rgba.Set(cx, cy, c)
@@ -49,7 +54,7 @@ func drawInnerDot(rgba *image.RGBA, px, py, radius int, c color.Color) {
 }
 
 func drawCross(rgba *image.RGBA, px, py, radius int, c color.Color) {
-	crossLen := radius + 4
+	crossLen := radius + crossLengthPadding
 	for dx := -crossLen; dx <= crossLen; dx++ {
 		cx := px + dx
 		if cx >= rgba.Bounds().Min.X && cx < rgba.Bounds().Max.X && py >= rgba.Bounds().Min.Y && py < rgba.Bounds().Max.Y {
@@ -99,7 +104,7 @@ func drawDotsOnScreenshot(screenshotB64 string, imgW, imgH int, dots []dotInfo, 
 	}
 
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, rgba, &jpeg.Options{Quality: 85}); err != nil {
+	if err := jpeg.Encode(&buf, rgba, &jpeg.Options{Quality: defaultJPEGQuality}); err != nil {
 		return "", fmt.Errorf("jpeg encode: %w", err)
 	}
 

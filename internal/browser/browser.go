@@ -29,7 +29,12 @@ type Config struct {
 	Stealth    bool
 }
 
-const envFalse = "false"
+const (
+	envFalse         = "false"
+	defaultWidth     = 1920
+	defaultHeight    = 1080
+	defaultTimeoutMs = 30000
+)
 
 func envIsFalse(v string) bool {
 	return v == envFalse || v == "0"
@@ -39,10 +44,10 @@ func envIsFalse(v string) bool {
 func ConfigFromEnv() Config {
 	cfg := Config{
 		Headless:  true,
-		Width:     1920,
-		Height:    1080,
+		Width:     defaultWidth,
+		Height:    defaultHeight,
 		NoSandbox: true,
-		TimeoutMs: 30000,
+		TimeoutMs: defaultTimeoutMs,
 		Stealth:   true,
 	}
 	if envIsFalse(os.Getenv("IRIS_HEADLESS")) {

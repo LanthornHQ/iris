@@ -9,6 +9,8 @@ import (
 	"github.com/LanthornHQ/iris/internal/browser"
 )
 
+const defaultScrollClicks = 3
+
 type Scroll struct {
 	Logger *slog.Logger
 	Driver browser.Driver
@@ -42,7 +44,7 @@ func (t *Scroll) ParametersSchema() map[string]any {
 			"clicks": map[string]any{
 				"type":        "integer",
 				"description": "Number of scroll steps (default: 3)",
-				"default":     3,
+				"default":     defaultScrollClicks,
 			},
 		},
 	}
@@ -53,7 +55,7 @@ func (t *Scroll) Execute(ctx context.Context, args map[string]any) (any, error) 
 	if d, ok := args["direction"].(string); ok && d != "" {
 		direction = d
 	}
-	clicks := optIntArg(args, "clicks", 3)
+	clicks := optIntArg(args, "clicks", defaultScrollClicks)
 
 	t.Logger.InfoContext(ctx, "scroll starting", "direction", direction, "clicks", clicks)
 	start := time.Now()

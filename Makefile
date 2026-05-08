@@ -30,7 +30,7 @@ run: build
 	$(BIN_DIR)/iris
 
 docker/build:
-	docker build --platform linux/amd64 -t $(DOCKER_IMAGE) .
+	docker build --platform linux/amd64 --build-arg VERSION=$(VERSION) -t $(DOCKER_IMAGE) .
 
 docker/push: docker/build
 	@echo "Tagging and pushing $(DOCKER_IMAGE) to local registry $(LOCAL_REGISTRY)..."

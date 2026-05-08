@@ -1,7 +1,8 @@
 FROM golang:1.26.2-bookworm AS builder
+ARG VERSION=dev
 WORKDIR /app
 COPY . .
-RUN go build -o iris ./cmd/iris
+RUN go build -ldflags="-X main.version=${VERSION}" -o iris ./cmd/iris
 
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive

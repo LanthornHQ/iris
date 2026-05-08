@@ -2,9 +2,9 @@
 
 ## Overview
 
-Iris is a stateless, vision-first MCP server that exposes **9 browser-control tools** (registered from 11 internal source files, where `annotate.go` and `overlay.go` act as drawing utilities) over the Model Context Protocol (MCP / JSON-RPC 2.0). It functions as the **eye and limb** of **Lanthorn** (the centralized synthetic monitoring brain and control plane), executing low-level coordinate-based actions and screenshot-capturing on target web applications without managing persistent states, routing logic, or execution schedules.
+Iris is a stateless, vision-first MCP server that exposes **8 browser-control tools** (registered from 10 internal source files, where `annotate.go` acts as a drawing utility) over the Model Context Protocol (MCP / JSON-RPC 2.0). It functions as the **eye and limb** of **Lanthorn** (the centralized synthetic monitoring brain and control plane), executing low-level coordinate-based actions and screenshot-capturing on target web applications without managing persistent states, routing logic, or execution schedules.
 
-Instead of navigating via fragile HTML elements, Iris relies on a coordinate-first vision interaction loop, making it resilient against frontend interface shifts.
+Instead of navigating via fragile HTML elements, Iris relies on a coordinate-first interaction loop, making it resilient against frontend interface shifts.
 
 ```mermaid
 graph LR
@@ -16,7 +16,6 @@ graph LR
     subgraph IRIS["Iris — The Eye & Limb (this repo)"]
         MCP["MCP Server\nHTTP"]
         DISPATCH["Tool Dispatcher"]
-        GR["Grounding Client\nVision Model"]
         BROWSER["Browser Driver\nchromedp (headless Chrome)"]
     end
 
@@ -24,7 +23,6 @@ graph LR
 
     REASON -->|"tools/call JSON-RPC"| MCP
     MCP --> DISPATCH
-    DISPATCH --> GR
     DISPATCH --> BROWSER
     BROWSER -->|"CDP mouse/keyboard\nNavigate, Screenshot"| TARGET
     TARGET -->|"screenshots"| DISPATCH
@@ -70,16 +68,14 @@ main.go
   ├── godotenv.Load()                    Load .env if present
   ├── slog.New(JSONHandler → stderr)     Must happen before any tool is constructed
   ├── browser.NewDriver(ctx, logger, cfg)  Start headless Chrome via chromedp
-  ├── grounding.NewClient(cfg, logger)   Create grounding HTTP client
   ├── mcp.NewServer(logger, version)     Create server
   ├── registry.RegisterAll(server)
   │     ├── Navigate
   │     ├── Screenshot
   │     ├── Click
-  │     ├── TypeText        (with GroundingClient for description-based typing)
+  │     ├── TypeText
   │     ├── Scroll
   │     ├── WaitForStable
-  │     ├── VerifyScreen    (with VerifyClient for vision verification)
   │     ├── Sleep
   │     └── GetDatetime
   ├── signal.Notify(SIGINT, SIGTERM) → context.Cancel
@@ -145,57 +141,6 @@ Double-click uses the same sequence with `ClickCount: 2` instead of repeating tw
 
 ---
 
-## Vision Grounding
-
-### Grounding: `type_text` with description
-
-When `type_text` is called with a `description` parameter, it performs a screenshot → grounding → click → type flow:
-
-```mermaid
-flowchart TD
-    A["type_text(text='hello', description='search box')"] --> B
-    B["screenshot()"] --> C
-    C["Ground(description, intent='type')\n→ point [x,y] → bbox"] --> D
-    D["click(center of bbox)"] --> E
-    E["sleep(150ms)"] --> F
-    F["type(text)"] --> G
-    G["screenshot() → response"]
-```
-
-### Grounding Pipeline
-
-```mermaid
-flowchart TD
-    A["Ground(target, intent, image)"] --> B
-    B["Decode base64 → PNG → image.Image"] --> C
-    C["Resize to ≤ MaxDim px\n(CatmullRom)"] --> D
-    D["Encode as JPEG 85%\n(5-10x smaller than PNG)"] --> E
-    E["POST to grounding model\n{messages: [{text, image_url}]}"] --> F
-    F["Parse response\n→ point [x,y] in 0-1000 space"] --> G
-    G["Map to pixel coordinates"] --> H
-    H["Expand point to bounding box\n(radius = POINT_CLICK_RADIUS, default 15px)"]
-```
-
-The model returns a single `[x, y]` center point. Iris expands it into a bounding box of radius `IRIS_GROUNDING_POINT_CLICK_RADIUS` (default: 15px) and clicks the center.
-
----
-
-## Screen Verification: `verify_screen`
-
-`verify_screen` reuses the same grounding HTTP pipeline but with a different system prompt. It asks the vision model a yes/no question and returns a structured answer:
-
-```json
-{"answer": "yes", "evidence": "A Save dialog with an OK button is visible", "bbox": [400, 200, 1000, 600]}
-```
-
-The tool accepts either a fresh screenshot (taken automatically) or a pre-captured `image_base64` from the caller — which avoids an extra capture if the agent just called `screenshot()`. An annotated overlay image is saved to the screenshots directory for debugging.
-
-A separate model can be configured for verification via `IRIS_VERIFY_MODEL` — useful if a larger, more capable model is preferred for assertions while a faster one handles element location.
-
-Debug overlays are saved as PNG files to `$IRIS_SCREENSHOT_DIR` if set, otherwise to `os.UserCacheDir()/iris/`.
-
----
-
 ## Click Annotation
 
 When `IRIS_ANNOTATE_CLICKS=1`, the `click` and `type_text` tools draw a semi-transparent red dot at the click coordinates on the post-click screenshot. This helps the agent visually verify where it clicked. The annotation is embedded in the base64 response image, not saved to disk.
@@ -217,30 +162,26 @@ iris/
 │   │   ├── server.go                MCP server: JSON-RPC 2.0, RunHTTP
 │   │   ├── server_test.go
 │   │   └── server_assert_test.go    HTTP integration + auth + timeout tests
-│   ├── grounding/
-│   │   ├── client.go                HTTP client for vision grounding (point mode) and verification
-│   │   └── client_test.go
 │   ├── metrics/
 │   │   └── metrics.go                Prometheus metrics (iris_* prefix)
 │   └── tools/
 │       ├── registry.go              ToolRegistry.RegisterAll — single registration point
 │       ├── args.go                  intArg / optIntArg helpers
 │       ├── schemas.go               Response types (ScreenshotResponse, ClickResponse, etc.)
-│       ├── types.go                 Interface types (GroundingClient, VerifyClient), type aliases
 │       ├── annotate.go              Click dot drawing helpers
-│       ├── overlay.go               Debug overlay drawing (verify bboxes, save to disk)
 │       ├── navigate.go              Navigate tool
 │       ├── capture.go                Screenshot tool
 │       ├── click.go                 Click tool (single + double)
-│       ├── type_text.go             TypeText tool (with optional description-based grounding)
+│       ├── type_text.go             TypeText tool (types into currently focused element)
 │       ├── scroll.go                Scroll tool
 │       ├── wait.go                  WaitForStable tool
-│       ├── verify_screen.go         VerifyScreen tool
 │       ├── sleep.go                 Sleep tool
 │       ├── get_datetime.go          GetDatetime tool
-│       └── tools_test.go           Tool unit tests (mock Driver + mock GroundingClient)
+│       └── tools_test.go           Tool unit tests (with mock browser Driver)
 ├── .github/workflows/ci.yml        CI: build + lint + test on Linux
-├── Dockerfile                       Chrome + iris binary (no Xvfb)
+├── .github/workflows/docker-push.yml CI/CD: build + push Docker image to GHCR on merges/tags
+├── Dockerfile                       Chrome + iris binary (with Xvfb and entrypoint.sh)
+├── entrypoint.sh                    Container startup script initializing Xvfb and starting server
 ├── Makefile
 ├── .golangci.yml
 └── AGENTS.md
@@ -254,11 +195,10 @@ iris/
 |---|---|---|
 | MCP protocol | `internal/mcp/server_test.go` | Always |
 | MCP HTTP + auth | `internal/mcp/server_assert_test.go` | Always |
-| Grounding client | `internal/grounding/client_test.go` | Always (mocks HTTP) |
 | Browser driver config | `internal/browser/browser_test.go` | Always |
-| Tool unit tests | `internal/tools/tools_test.go` | Always (mocks Driver + GroundingClient) |
+| Tool unit tests | `internal/tools/tools_test.go` | Always (mocks Driver) |
 
-All tool unit tests use mock implementations of `browser.Driver`, `GroundingClient`, and `VerifyClient` — no real browser or grounding model required.
+All tool unit tests use mock implementations of `browser.Driver` — no real browser is required.
 
 ---
 
@@ -274,8 +214,7 @@ All tool unit tests use mock implementations of `browser.Driver`, `GroundingClie
 
 - Tools return Go errors; the MCP layer wraps them in JSON-RPC error responses (`code: -32603`)
 - No retry logic inside tools — the calling agent decides whether to retry
-- Context cancellation is checked before and during long operations (screenshot, grounding HTTP call)
-- Grounding errors do not crash the server; they are returned as tool errors so the agent can adapt
+- Context cancellation is checked before and during operations (screenshot, browser actions)
 
 ---
 
@@ -288,12 +227,11 @@ All env vars use the `IRIS_*` prefix. See `.env.example` for the full list with 
 | `IRIS_ADDR` | `0.0.0.0:3000` | HTTP listen address |
 | `IRIS_API_KEY` | (none) | API key for HTTP transport |
 | `IRIS_HEADLESS` | `true` | Run Chrome in headless mode |
+| `IRIS_STEALTH` | `true` | Enable bot detection bypass measures (navigator / WebGL overrides) |
 | `IRIS_CHROME_PATH` | (auto) | Path to Chrome binary |
 | `IRIS_NO_SANDBOX` | `true` | Chrome `--no-sandbox` flag |
 | `IRIS_TOOL_TIMEOUT` | `30` | Per-tool-call timeout (seconds) |
 | `IRIS_LOG_LEVEL` | `debug` | Log verbosity: `debug`, `info`, `warn`, `error` |
-| `IRIS_GROUNDING_URL` | (none) | Grounding model API URL |
-| `IRIS_GROUNDING_MODEL` | (none) | Grounding model name |
 | `IRIS_ANNOTATE_CLICKS` | (none) | Set to `1` to annotate click positions |
 | `IRIS_SCREENSHOT_DIR` | (cache dir) | Directory for debug overlay images |
 
@@ -302,7 +240,7 @@ All env vars use the `IRIS_*` prefix. See `.env.example` for the full list with 
 ## Known Limitations
 
 - **Headless only**: No visible browser window (intentional — Iris is a server, not a desktop tool)
-- **No DOM traversal**: All interaction is coordinate-based (screenshot → grounding → click). No CSS selectors, no XPath.
+- **No DOM traversal**: All interaction is coordinate-based (screenshot → click). No CSS selectors, no XPath.
 - **No retry**: Tools do not retry internally. The calling agent is responsible for retry logic.
 - **Stateless HTTP**: Each `POST /mcp` is independent — no session, no SSE.
 - **Single browser context**: All tools share one browser context (one tab, one page). No multi-tab management. This has critical implications: all tool calls share a single active tab. If tool A navigates to site X and tool B subsequently navigates to site Y, they share the same tab, cookie jar, and local storage. Callers expecting session-level isolation must run separate Iris server instances.

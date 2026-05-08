@@ -26,6 +26,13 @@ type Config struct {
 	ChromePath string
 	NoSandbox  bool
 	TimeoutMs  int
+	Stealth    bool
+}
+
+const envFalse = "false"
+
+func envIsFalse(v string) bool {
+	return v == envFalse || v == "0"
 }
 
 // ConfigFromEnv reads browser configuration from IRIS_* environment variables.
@@ -36,15 +43,19 @@ func ConfigFromEnv() Config {
 		Height:    1080,
 		NoSandbox: true,
 		TimeoutMs: 30000,
+		Stealth:   true,
 	}
-	if v := os.Getenv("IRIS_HEADLESS"); v == "false" || v == "0" {
+	if envIsFalse(os.Getenv("IRIS_HEADLESS")) {
 		cfg.Headless = false
 	}
 	if v := os.Getenv("IRIS_CHROME_PATH"); v != "" {
 		cfg.ChromePath = v
 	}
-	if v := os.Getenv("IRIS_NO_SANDBOX"); v == "false" || v == "0" {
+	if envIsFalse(os.Getenv("IRIS_NO_SANDBOX")) {
 		cfg.NoSandbox = false
+	}
+	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
+		cfg.Stealth = false
 	}
 	return cfg
 }

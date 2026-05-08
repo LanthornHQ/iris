@@ -39,28 +39,17 @@ const stealthJS = `(function() {
 })();`
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
-	shared := commonFlags(cfg)
-
-	if cfg.Stealth {
-		opts := shared
-		opts = append(opts,
-			chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		)
-		if cfg.Headless {
-			opts = append(opts, chromedp.Flag("headless", "new"))
-		}
-		return opts
-	}
-
-	opts := append(chromedp.DefaultExecAllocatorOptions[:], shared...)
+	opts := commonFlags(cfg)
+	opts = append(opts,
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+	)
 	if cfg.Headless {
-		opts = append(opts, chromedp.Headless)
+		opts = append(opts, chromedp.Flag("headless", "new"))
 	}
 	return opts
 }
 
-// commonFlags returns the allocator options applied in both stealth and
-// non-stealth mode. Stealth mode appends its own overrides on top.
+// commonFlags returns the default allocator options.
 func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 	return []chromedp.ExecAllocatorOption{
 		// --- Rendering ---
@@ -204,21 +193,18 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 
 	logger.InfoContext(ctx, "starting Chrome",
 		"headless", cfg.Headless,
-		"stealth", cfg.Stealth,
 		"window_size", fmt.Sprintf("%dx%d", cfg.Width, cfg.Height),
 		"no_sandbox", cfg.NoSandbox,
 		"timeout", timeout)
 
 	var initActions []chromedp.Action
 
-	if cfg.Stealth {
-		initActions = append(initActions,
-			chromedp.ActionFunc(func(ctx context.Context) error {
-				_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
-				return err
-			}),
-		)
-	}
+	initActions = append(initActions,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
+			return err
+		}),
+	)
 
 	cookies := buildCookies(cfg.InitialCookies, cfg.BypassGoogleConsent)
 	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -509,7 +495,44 @@ func tryParseSpecial(runes []rune, i int) (keySegment, int, bool) {
 	return keySegment{}, i, false
 }
 
-//nolint:gocognit,mnd // Function parsing logic has high density and index offsets
+func tryParseDoubleBrace(runes []rune, i int) ([]keySegment, int, bool) {
+	n := len(runes)
+	const doubleBraceCharLen = 2
+	if i+1 >= n || runes[i] != '{' || runes[i+1] != '{' {
+		return nil, i, false
+	}
+
+	closeIdx := -1
+	for j := i + doubleBraceCharLen; j+1 < n; j++ {
+		if runes[j] == '}' && runes[j+1] == '}' {
+			closeIdx = j
+			break
+		}
+	}
+
+	if closeIdx == -1 {
+		return nil, i, false
+	}
+
+	var segments []keySegment
+	segments = append(segments, keySegment{keys: "{"})
+	content := runes[i+doubleBraceCharLen : closeIdx]
+	for _, r := range content {
+		segments = append(segments, keySegment{keys: string(r)})
+	}
+	segments = append(segments, keySegment{keys: "}"})
+	return segments, closeIdx + doubleBraceCharLen, true
+}
+
+func tryParseClosingDoubleBrace(runes []rune, i int) (keySegment, int, bool) {
+	n := len(runes)
+	const doubleBraceCharLen = 2
+	if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
+		return keySegment{keys: "}"}, i + doubleBraceCharLen, true
+	}
+	return keySegment{}, i, false
+}
+
 func parseSpecialKeys(text string) []keySegment {
 	var parts []keySegment
 	runes := []rune(text)
@@ -517,32 +540,15 @@ func parseSpecialKeys(text string) []keySegment {
 	i := 0
 
 	for i < n {
-		// Look for escape block "{{ ... }}"
-		if i+1 < n && runes[i] == '{' && runes[i+1] == '{' {
-			// Find the closing "}}"
-			closeIdx := -1
-			for j := i + 2; j+1 < n; j++ {
-				if runes[j] == '}' && runes[j+1] == '}' {
-					closeIdx = j
-					break
-				}
-			}
-			if closeIdx != -1 {
-				// We found a matching "}}". We emit '{', the characters in between, and then '}'
-				parts = append(parts, keySegment{keys: "{"})
-				content := runes[i+2 : closeIdx]
-				for _, r := range content {
-					parts = append(parts, keySegment{keys: string(r)})
-				}
-				parts = append(parts, keySegment{keys: "}"})
-				i = closeIdx + 2
-				continue
-			}
+		if segs, nextIdx, ok := tryParseDoubleBrace(runes, i); ok {
+			parts = append(parts, segs...)
+			i = nextIdx
+			continue
 		}
 
-		if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
-			parts = append(parts, keySegment{keys: "}"})
-			i += 2
+		if seg, nextIdx, ok := tryParseClosingDoubleBrace(runes, i); ok {
+			parts = append(parts, seg)
+			i = nextIdx
 			continue
 		}
 

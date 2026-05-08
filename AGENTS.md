@@ -69,15 +69,6 @@ JSON-RPC numbers decode as `float64` in Go. Two helpers in `internal/tools/args.
 - `.env` is loaded automatically at startup via `godotenv.Load()`. Use `os.Getenv()` for env vars; do not manually read `.env`.
 - Environment variable prefix: `IRIS_*`.
 
-### Stealth Mode
-
-Stealth mode (default: on) helps bypass bot detection (Cloudflare, etc.):
-
-- Removes `--enable-automation` and adds `--disable-blink-features=AutomationControlled`
-- Injects a minimal JavaScript snippet to override `navigator.webdriver`
-- Since real Chrome runs under Xvfb, authentic device characteristics (plugins, dimensions, WebGL) are natively preserved without artificial spoofing discrepancies
-- Set `IRIS_STEALTH=false` to disable (falls back to standard chromedp defaults)
-
 ### Testing
 
 - `github.com/stretchr/testify` — `require` for fatal preconditions, `assert` for non-fatal checks.

@@ -37,7 +37,6 @@ type Config struct {
 	ChromePath          string
 	NoSandbox           bool
 	TimeoutMs           int
-	Stealth             bool
 	BypassGoogleConsent bool
 	InitialCookies      []CookieDef
 }
@@ -61,7 +60,6 @@ func ConfigFromEnv() (Config, error) {
 		Height:    defaultHeight,
 		NoSandbox: true,
 		TimeoutMs: defaultTimeoutMs,
-		Stealth:   true,
 	}
 	if envIsFalse(os.Getenv("IRIS_HEADLESS")) {
 		cfg.Headless = false
@@ -71,9 +69,6 @@ func ConfigFromEnv() (Config, error) {
 	}
 	if envIsFalse(os.Getenv("IRIS_NO_SANDBOX")) {
 		cfg.NoSandbox = false
-	}
-	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
-		cfg.Stealth = false
 	}
 	if os.Getenv("IRIS_BYPASS_GOOGLE_CONSENT") == "1" {
 		cfg.BypassGoogleConsent = true

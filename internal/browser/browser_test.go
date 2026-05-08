@@ -90,21 +90,18 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	assert.True(t, cfg.NoSandbox)
 	assert.Equal(t, 30000, cfg.TimeoutMs)
 	assert.Empty(t, cfg.ChromePath)
-	assert.True(t, cfg.Stealth)
 }
 
 func TestConfigFromEnv_Custom(t *testing.T) {
 	t.Setenv("IRIS_HEADLESS", "false")
 	t.Setenv("IRIS_CHROME_PATH", "/usr/bin/chromium")
 	t.Setenv("IRIS_NO_SANDBOX", "false")
-	t.Setenv("IRIS_STEALTH", "false")
 
 	cfg, err := ConfigFromEnv()
 	require.NoError(t, err)
 	assert.False(t, cfg.Headless)
 	assert.Equal(t, "/usr/bin/chromium", cfg.ChromePath)
 	assert.False(t, cfg.NoSandbox)
-	assert.False(t, cfg.Stealth)
 }
 
 func TestConfigFromEnv_Overrides(t *testing.T) {

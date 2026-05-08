@@ -227,7 +227,6 @@ All env vars use the `IRIS_*` prefix. See `.env.example` for the full list with 
 | `IRIS_ADDR` | `0.0.0.0:3000` | HTTP listen address |
 | `IRIS_API_KEY` | (none) | API key for HTTP transport |
 | `IRIS_HEADLESS` | `true` | Run Chrome in headless mode |
-| `IRIS_STEALTH` | `true` | Enable bot detection bypass measures (navigator / WebGL overrides) |
 | `IRIS_CHROME_PATH` | (auto) | Path to Chrome binary |
 | `IRIS_NO_SANDBOX` | `true` | Chrome `--no-sandbox` flag |
 | `IRIS_TOOL_TIMEOUT` | `30` | Per-tool-call timeout (seconds) |

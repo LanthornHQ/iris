@@ -5,6 +5,7 @@ RUN go build -o iris ./cmd/iris
 
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
+ENV IRIS_ANNOTATE_CLICKS=1
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \

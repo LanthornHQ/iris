@@ -4,9 +4,10 @@ GOLINT_BIN_DIR=$(CURDIR)/bin
 GOLINT_CMD=$(GOLINT_BIN_DIR)/golangci-lint
 GOLINT_VERSION=v2.11.4
 
-DOCKER_IMAGE ?= iris
+DOCKER_IMAGE ?= lanthornhq/iris
+LOCAL_REGISTRY ?= localhost:5001
 
-.PHONY: lint test build run clean docker/build docker/run docker/start docker/stop docker/logs
+.PHONY: lint test build run clean docker/build docker/push docker/run docker/start docker/stop docker/logs docker/registry docker/registry/stop
 
 lint:
 	@echo "Linting Go code..."
@@ -29,7 +30,33 @@ run: build
 	$(BIN_DIR)/iris
 
 docker/build:
-	docker build -t $(DOCKER_IMAGE) .
+	docker build --platform linux/amd64 -t $(DOCKER_IMAGE) .
+
+docker/push: docker/build
+	@echo "Tagging and pushing $(DOCKER_IMAGE) to local registry $(LOCAL_REGISTRY)..."
+	docker tag $(DOCKER_IMAGE) $(LOCAL_REGISTRY)/$(DOCKER_IMAGE):$(VERSION)
+	docker tag $(DOCKER_IMAGE) $(LOCAL_REGISTRY)/$(DOCKER_IMAGE):latest
+	docker push $(LOCAL_REGISTRY)/$(DOCKER_IMAGE):$(VERSION)
+	docker push $(LOCAL_REGISTRY)/$(DOCKER_IMAGE):latest
+
+docker/registry:
+	@if [ $$(docker ps -a -q -f name=local-registry) ]; then \
+		if [ $$(docker ps -q -f name=local-registry) ]; then \
+			echo "Local registry is already running."; \
+		else \
+			echo "Starting existing local registry..."; \
+			docker start local-registry; \
+		fi; \
+	else \
+		echo "Creating and starting new local registry on port 5001..."; \
+		docker run -d -p 5001:5000 --restart=always --name local-registry registry:2; \
+	fi
+
+docker/registry/stop:
+	@if [ $$(docker ps -a -q -f name=local-registry) ]; then \
+		echo "Stopping and removing local registry..."; \
+		docker stop local-registry && docker rm local-registry; \
+	fi
 
 docker/run: docker/build
 	docker run --rm \

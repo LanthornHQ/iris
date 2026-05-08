@@ -9,6 +9,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV IRIS_ANNOTATE_CLICKS=1
 
 RUN apt-get update && apt-get install -y \
+    xvfb \
+    xauth \
     ca-certificates \
     wget \
     gnupg \
@@ -19,7 +21,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/iris /usr/local/bin/iris
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
-ENTRYPOINT ["iris"]
+ENTRYPOINT ["/entrypoint.sh"]

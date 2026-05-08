@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -38,92 +39,223 @@ var stealthHWOptions = []int{4, 8, 16}
 // to avoid sessions sharing an identical browser signature.
 func buildStealthJS(hwConcurrency, deviceMemory int) string {
 	return fmt.Sprintf(`(function() {
+	// --- navigator properties ---
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+	Object.defineProperty(navigator, 'language',  {get: () => 'en-US'});
 	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
+	Object.defineProperty(navigator, 'deviceMemory',        {get: () => %d});
+
+	// Plugins: real Chrome always shows at least the PDF plugin.
 	Object.defineProperty(navigator, 'plugins', {get: () => {
-		var arr = [1, 2, 3, 4, 5];
+		var pdf = {name:'Chrome PDF Plugin',filename:'internal-pdf-viewer',description:'Portable Document Format',length:1};
+		var arr = [pdf];
 		arr.item = function(i) { return this[i]; };
-		arr.namedItem = function(name) { return null; };
+		arr.namedItem = function(n) { for(var i=0;i<this.length;i++){if(this[i].name===n)return this[i];} return null; };
 		arr.refresh = function() {};
 		Object.setPrototypeOf(arr, PluginArray.prototype);
 		return arr;
 	}});
-	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
-	Object.defineProperty(navigator, 'deviceMemory', {get: () => %d});
-	window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){} };
-	const originalQuery = window.navigator.permissions.query;
+
+	// MimeTypes: match the PDF plugin above.
+	Object.defineProperty(navigator, 'mimeTypes', {get: () => {
+		var pdf = {type:'application/pdf',suffixes:'pdf',description:'Portable Document Format',enabledPlugin:navigator.plugins[0]};
+		var arr = [pdf];
+		arr.item = function(i) { return this[i]; };
+		arr.namedItem = function(t) { for(var i=0;i<this.length;i++){if(this[i].type===t)return this[i];} return null; };
+		Object.setPrototypeOf(arr, MimeTypeArray.prototype);
+		return arr;
+	}});
+
+	// --- window dimensions: headless reports outerHeight=0 ---
+	try {
+		Object.defineProperty(window, 'outerWidth',  {get: () => window.innerWidth});
+		Object.defineProperty(window, 'outerHeight', {get: () => window.innerHeight + 85});
+	} catch(e) {}
+
+	// --- window.chrome: detectors inspect app, runtime, csi ---
+	window.chrome = {
+		app: {
+			isInstalled: false,
+			InstallState: {DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'},
+			RunningState:  {CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'},
+			getDetails:    function(){},
+			getIsInstalled:function(){},
+			installState:  function(){},
+		},
+		runtime: {
+			connect:     function(){return{disconnect:function(){},postMessage:function(){},onMessage:{addListener:function(){}},onDisconnect:{addListener:function(){}}};},
+			sendMessage: function(){},
+			getManifest: function(){return {};},
+			id:          undefined,
+			OnInstalledReason: {CHROME_UPDATE:'chrome_update',INSTALL:'install',SHARED_MODULE_UPDATE:'shared_module_update',UPDATE:'update'},
+			PlatformOs:        {ANDROID:'android',CROS:'cros',LINUX:'linux',MAC:'mac',OPENBSD:'openbsd',WIN:'win'},
+			PlatformArch:      {ARM:'arm','ARM64':'arm64',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64'},
+			RequestUpdateCheckStatus: {NO_UPDATE:'no_update',THROTTLED:'throttled',UPDATE_AVAILABLE:'update_available'},
+		},
+		loadTimes: function(){},
+		csi:       function(){return {startE:Date.now(),onloadT:Date.now(),pageT:Date.now(),tran:15};},
+	};
+
+	// --- Permissions ---
+	const _origQuery = window.navigator.permissions.query;
 	window.navigator.permissions.query = (parameters) => (
 		parameters.name === 'notifications' ?
 			Promise.resolve({state: (typeof Notification !== 'undefined' ? Notification.permission : 'default')}) :
-			originalQuery(parameters)
+			_origQuery(parameters)
 	);
-	const getParameter = WebGLRenderingContext.prototype.getParameter;
-	WebGLRenderingContext.prototype.getParameter = function(parameter) {
-		if (parameter === 37445) return 'Google Inc. (NVIDIA)';
-		if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
-		return getParameter.call(this, parameter);
-	};
-	const origAttachShadow = Element.prototype.attachShadow;
-	Element.prototype.attachShadow = function() {
-		return origAttachShadow.apply(this, arguments);
-	};
+
+	// --- WebGL: patch both WebGL1 and WebGL2 contexts ---
+	function patchWebGL(ctx) {
+		if (!ctx) return;
+		const orig = ctx.prototype.getParameter;
+		ctx.prototype.getParameter = function(parameter) {
+			if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+			if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
+			return orig.call(this, parameter);
+		};
+	}
+	patchWebGL(WebGLRenderingContext);
+	if (typeof WebGL2RenderingContext !== 'undefined') patchWebGL(WebGL2RenderingContext);
 })();`, hwConcurrency, deviceMemory)
 }
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
+	shared := commonFlags(cfg)
+
 	if cfg.Stealth {
-		opts := []chromedp.ExecAllocatorOption{
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("no-sandbox", cfg.NoSandbox),
-			chromedp.Flag("disable-dev-shm-usage", true),
-			chromedp.WindowSize(cfg.Width, cfg.Height),
-			chromedp.Flag("hide-scrollbars", true),
-			chromedp.Flag("mute-audio", true),
-			chromedp.Flag("no-first-run", true),
-			chromedp.Flag("no-default-browser-check", true),
-			chromedp.Flag("disable-notifications", true),
-			chromedp.Flag("disable-backgrounding-occluded-windows", true),
-			chromedp.Flag("disable-background-timer-throttling", true),
-			chromedp.Flag("disable-renderer-backgrounding", true),
-			chromedp.Flag("disable-background-networking", true),
-			chromedp.Flag("disable-component-update", true),
-			chromedp.Flag("disable-domain-reliability", true),
-			chromedp.Flag("disable-crash-reporter", true),
-			chromedp.Flag("password-store", "basic"),
+		opts := shared
+		opts = append(opts,
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
 			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
-		}
+		)
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
 		}
 		return opts
 	}
 
-	opts := chromedp.DefaultExecAllocatorOptions[:]
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], shared...)
 	if cfg.Headless {
 		opts = append(opts, chromedp.Headless)
 	}
-	opts = append(opts,
-		chromedp.Flag("no-sandbox", cfg.NoSandbox),
-		chromedp.Flag("disable-dev-shm-usage", true),
+	return opts
+}
+
+// commonFlags returns the allocator options applied in both stealth and
+// non-stealth mode. Stealth mode appends its own overrides on top.
+func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
+	return []chromedp.ExecAllocatorOption{
+		// --- Rendering ---
 		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("no-sandbox", cfg.NoSandbox),
 		chromedp.WindowSize(cfg.Width, cfg.Height),
+		chromedp.Flag("window-position", "0,0"),
 		chromedp.Flag("hide-scrollbars", true),
+		chromedp.Flag("disable-smooth-scrolling", true),
 		chromedp.Flag("mute-audio", true),
+
+		// --- Suppress first-run / onboarding UI ---
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("no-default-browser-check", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-search-engine-choice-screen", true),
+
+		// --- Suppress permission / dialog prompts ---
+		chromedp.Flag("deny-permission-prompts", true),
 		chromedp.Flag("disable-notifications", true),
-		chromedp.Flag("disable-backgrounding-occluded-windows", true),
-		chromedp.Flag("disable-background-timer-throttling", true),
-		chromedp.Flag("disable-renderer-backgrounding", true),
+		chromedp.Flag("disable-hang-monitor", true),
+		chromedp.Flag("disable-prompt-on-repost", true),
+		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+
+		// --- Disable features: UI chrome, telemetry, consent popups ---
+		chromedp.Flag("disable-features",
+			"SearchEngineChoice,SearchEngineChoiceScreen,"+
+				"FirstRunDesktopRefresh,FirstRunDesktopChoiceScreenRefresh,FirstRunDesktopRevamp,"+
+				"PrivacySandboxSettings4,GpcConsent,TopicsFencingV3,ConsentBump,"+
+				"OptimizationGuideModelDownloading,OptimizationHints,"+
+				"OptimizationTargetPrediction,OptimizationHintsFetching,"+
+				"Translate,MediaRouter,Preload"),
+
+		// Tell Chrome to skip its own consent/privacy-sandbox dialogs.
+		chromedp.Flag("enable-features", "PrivacySandboxConsentExemption"),
+
+		// --- Network & telemetry suppression ---
 		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
 		chromedp.Flag("disable-component-update", true),
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
+		chromedp.Flag("disable-component-extensions-with-background-pages", true),
+		chromedp.Flag("no-pings", true),
+
+		// --- Credentials ---
 		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
-	)
-	return opts
+
+		// --- Language / locale ---
+		chromedp.Flag("lang", "en-US"),
+	}
+}
+
+func buildCookies(initial []CookieDef) []*network.CookieParam {
+	var cookies []*network.CookieParam
+
+	for _, c := range initial {
+		path := c.Path
+		if path == "" {
+			path = "/"
+		}
+		cookies = append(cookies, &network.CookieParam{
+			Name:   c.Name,
+			Value:  c.Value,
+			Domain: c.Domain,
+			Path:   path,
+		})
+	}
+
+	// Always inject default bypass cookies for Google and YouTube domains to prevent consent overlays
+	googleDomains := []string{
+		".google.com",
+		".google.de",
+		".google.co.uk",
+		".google.fr",
+		".google.it",
+		".google.es",
+		".google.nl",
+		".google.co.jp",
+		".google.ca",
+		".google.com.br",
+		".google.pl",
+		".google.ch",
+		".google.at",
+		".google.be",
+		".google.cz",
+		".google.se",
+		".google.no",
+		".google.dk",
+		".google.fi",
+		".youtube.com",
+	}
+	for _, domain := range googleDomains {
+		cookies = append(cookies,
+			&network.CookieParam{
+				Name:   "SOCS",
+				Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
+				Domain: domain,
+				Path:   "/",
+			},
+			&network.CookieParam{
+				Name:   "CONSENT",
+				Value:  "PENDING+999",
+				Domain: domain,
+				Path:   "/",
+			},
+		)
+	}
+	return cookies
 }
 
 func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
@@ -172,19 +304,10 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		)
 	}
 
-	if len(cfg.InitialCookies) > 0 {
-		cookies := make([]*network.CookieParam, len(cfg.InitialCookies))
-		for i, c := range cfg.InitialCookies {
-			path := c.Path
-			if path == "" {
-				path = "/"
-			}
-			cookies[i] = &network.CookieParam{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: path}
-		}
-		initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
-			return network.SetCookies(cookies).Do(ctx)
-		}))
-	}
+	cookies := buildCookies(cfg.InitialCookies)
+	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
+		return network.SetCookies(cookies).Do(ctx)
+	}))
 
 	initActions = append(initActions, chromedp.Navigate("about:blank"))
 
@@ -236,22 +359,23 @@ func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) err
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	if delayMs <= 0 {
-		return chromedp.Run(actionCtx, chromedp.SendKeys("document", text, chromedp.ByJSPath))
-	}
+	parts := parseSpecialKeys(text)
+	delay := time.Duration(max(0, delayMs)) * time.Millisecond
 
-	delay := time.Duration(delayMs) * time.Millisecond
 	return chromedp.Run(actionCtx, chromedp.ActionFunc(func(ctx context.Context) error {
-		runes := []rune(text)
-		for i, ch := range runes {
-			if i > 0 {
+		for i, seg := range parts {
+			if i > 0 && delay > 0 {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-time.After(delay):
 				}
 			}
-			if err := chromedp.SendKeys("document", string(ch), chromedp.ByJSPath).Do(ctx); err != nil {
+			var opts []chromedp.KeyOption
+			if seg.modifier != 0 {
+				opts = append(opts, chromedp.KeyModifiers(seg.modifier))
+			}
+			if err := chromedp.KeyEvent(seg.keys, opts...).Do(ctx); err != nil {
 				return err
 			}
 		}
@@ -437,4 +561,99 @@ func mouseRelease(x, y int, btn input.MouseButton, clickCount int) chromedp.Acti
 	return chromedp.ActionFunc(func(ctx context.Context) error {
 		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
 	})
+}
+
+type keySegment struct {
+	keys     string
+	modifier input.Modifier
+}
+
+func tryParseSpecial(runes []rune, i int) (keySegment, int, bool) {
+	n := len(runes)
+	if runes[i] != '{' {
+		return keySegment{}, i, false
+	}
+	if i+1 < n && runes[i+1] == '{' {
+		const braceEscapeLen = 2
+		return keySegment{keys: "{"}, i + braceEscapeLen, true
+	}
+	closeIdx := -1
+	for j := i + 1; j < n; j++ {
+		if runes[j] == '}' {
+			closeIdx = j
+			break
+		}
+	}
+	if closeIdx != -1 {
+		name := strings.ToLower(string(runes[i+1 : closeIdx]))
+		if seg, ok := resolveSpecialKey(name); ok {
+			return seg, closeIdx + 1, true
+		}
+	}
+	return keySegment{}, i, false
+}
+
+func parseSpecialKeys(text string) []keySegment {
+	var parts []keySegment
+	runes := []rune(text)
+	n := len(runes)
+	i := 0
+
+	for i < n {
+		if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
+			parts = append(parts, keySegment{keys: "}"})
+			i += 2
+			continue
+		}
+
+		if seg, nextIdx, ok := tryParseSpecial(runes, i); ok {
+			parts = append(parts, seg)
+			i = nextIdx
+			continue
+		}
+
+		parts = append(parts, keySegment{keys: string(runes[i])})
+		i++
+	}
+
+	return parts
+}
+
+func resolveSpecialKey(name string) (keySegment, bool) {
+	switch name {
+	case "enter":
+		return keySegment{keys: "\r"}, true
+	case "tab":
+		return keySegment{keys: "\t"}, true
+	case "escape", "esc":
+		return keySegment{keys: "\x1b"}, true
+	case "backspace":
+		return keySegment{keys: "\b"}, true
+	case "delete":
+		return keySegment{keys: "\x7f"}, true
+	case "up":
+		return keySegment{keys: "\u0304"}, true
+	case "down":
+		return keySegment{keys: "\u0301"}, true
+	case "left":
+		return keySegment{keys: "\u0302"}, true
+	case "right":
+		return keySegment{keys: "\u0303"}, true
+	case "home":
+		return keySegment{keys: "\u0306"}, true
+	case "end":
+		return keySegment{keys: "\u0305"}, true
+	case "pageup":
+		return keySegment{keys: "\u0308"}, true
+	case "pagedown":
+		return keySegment{keys: "\u0307"}, true
+	case "shift+tab", "shift-tab":
+		return keySegment{keys: "\t", modifier: input.ModifierShift}, true
+	}
+	// {Ctrl+X} / {Ctrl-X} where X is a single letter or digit
+	if (strings.HasPrefix(name, "ctrl+") || strings.HasPrefix(name, "ctrl-")) && len([]rune(name)) == 6 {
+		ch := strings.ToLower(string([]rune(name)[5]))
+		return keySegment{keys: ch, modifier: input.ModifierCtrl}, true
+	}
+	return keySegment{}, false
 }

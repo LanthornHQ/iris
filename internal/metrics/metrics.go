@@ -16,10 +16,4 @@ var (
 		Help:    "Duration of tool execution.",
 		Buckets: []float64{.025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
 	}, []string{"tool"})
-
-	GroundingRequestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-		Name:    "iris_grounding_request_duration_seconds",
-		Help:    "Duration of vision grounding model requests.",
-		Buckets: []float64{.1, .25, .5, 1, 2, 5, 10, 30, 60},
-	})
 )

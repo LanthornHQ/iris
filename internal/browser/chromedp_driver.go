@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
@@ -171,6 +172,20 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		)
 	}
 
+	if len(cfg.InitialCookies) > 0 {
+		cookies := make([]*network.CookieParam, len(cfg.InitialCookies))
+		for i, c := range cfg.InitialCookies {
+			path := c.Path
+			if path == "" {
+				path = "/"
+			}
+			cookies[i] = &network.CookieParam{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: path}
+		}
+		initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
+			return network.SetCookies(cookies).Do(ctx)
+		}))
+	}
+
 	initActions = append(initActions, chromedp.Navigate("about:blank"))
 
 	if err := chromedp.Run(browserCtx, initActions...); err != nil {
@@ -218,33 +233,30 @@ func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 
 func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) error {
 	d.logger.InfoContext(ctx, "type_text", "text_len", len(text), "delay_ms", delayMs)
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
 
 	if delayMs <= 0 {
-		actionCtx, cancel := d.withTimeout(ctx)
-		defer cancel()
 		return chromedp.Run(actionCtx, chromedp.SendKeys("document", text, chromedp.ByJSPath))
 	}
 
 	delay := time.Duration(delayMs) * time.Millisecond
-	for _, ch := range text {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	return chromedp.Run(actionCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		runes := []rune(text)
+		for i, ch := range runes {
+			if i > 0 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(delay):
+				}
+			}
+			if err := chromedp.SendKeys("document", string(ch), chromedp.ByJSPath).Do(ctx); err != nil {
+				return err
+			}
 		}
-		actionCtx, cancel := d.withTimeout(ctx)
-		err := chromedp.Run(actionCtx, chromedp.SendKeys("document", string(ch), chromedp.ByJSPath))
-		cancel()
-		if err != nil {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay):
-		}
-	}
-	return nil
+		return nil
+	}))
 }
 
 func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks int) error {

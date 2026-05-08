@@ -10,7 +10,7 @@ import (
 	"github.com/LanthornHQ/iris/internal/browser"
 )
 
-const defaultDelayMs = 10
+const defaultDelayMs = 0
 
 type TypeText struct {
 	Logger *slog.Logger

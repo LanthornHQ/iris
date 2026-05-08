@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 )
@@ -19,14 +20,23 @@ type Driver interface {
 	Close() error
 }
 
+// CookieDef represents a browser cookie to inject at startup.
+type CookieDef struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Domain string `json:"domain"`
+	Path   string `json:"path"`
+}
+
 type Config struct {
-	Headless   bool
-	Width      int
-	Height     int
-	ChromePath string
-	NoSandbox  bool
-	TimeoutMs  int
-	Stealth    bool
+	Headless       bool
+	Width          int
+	Height         int
+	ChromePath     string
+	NoSandbox      bool
+	TimeoutMs      int
+	Stealth        bool
+	InitialCookies []CookieDef
 }
 
 const (
@@ -61,6 +71,12 @@ func ConfigFromEnv() Config {
 	}
 	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
 		cfg.Stealth = false
+	}
+	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
+		var cookies []CookieDef
+		if err := json.Unmarshal([]byte(v), &cookies); err == nil {
+			cfg.InitialCookies = cookies
+		}
 	}
 	return cfg
 }

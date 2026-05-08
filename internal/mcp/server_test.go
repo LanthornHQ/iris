@@ -146,9 +146,12 @@ func TestProcessRequestParamsWithNilArguments(t *testing.T) {
 type mockImageTool struct{}
 
 func (t *mockImageTool) Name() string { return "image_tool" }
+
 func (t *mockImageTool) Description() string { return "returns a fake image" }
+
 func (t *mockImageTool) ParametersSchema() map[string]any { return map[string]any{} }
-func (t *mockImageTool) Execute(ctx context.Context, args map[string]any) (any, error) {
+
+func (t *mockImageTool) Execute(_ context.Context, _ map[string]any) (any, error) {
 	return map[string]any{
 		"success":      true,
 		"image_base64": "fake_base64_data",

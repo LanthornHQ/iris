@@ -245,9 +245,14 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 	defer cancel()
 
 	var buf []byte
-	if err := chromedp.Run(actionCtx,
-		chromedp.FullScreenshot(&buf, defaultJPEGQuality),
-	); err != nil {
+	if err := chromedp.Run(actionCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		var err error
+		buf, err = page.CaptureScreenshot().
+			WithFormat(page.CaptureScreenshotFormatJpeg).
+			WithQuality(defaultJPEGQuality).
+			Do(ctx)
+		return err
+	})); err != nil {
 		return "", 0, 0, fmt.Errorf("screenshot failed: %w", err)
 	}
 

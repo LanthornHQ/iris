@@ -6,7 +6,7 @@ GOLINT_VERSION=v2.11.4
 
 DOCKER_IMAGE ?= lanthornhq/iris
 
-.PHONY: lint test build run clean docker/build docker/run docker/start docker/stop docker/logs
+.PHONY: lint test build run clean docker/build docker/run docker/start docker/stop docker/logs docker/test
 
 lint:
 	@echo "Linting Go code..."
@@ -51,6 +51,9 @@ docker/stop:
 
 docker/logs:
 	docker logs -f $(DOCKER_IMAGE)
+
+docker/test: docker/build
+	bash scripts/test_integration.sh
 
 clean:
 	rm -f $(BIN_DIR)/iris

@@ -35,3 +35,6 @@ jobs:
 
       - name: Test
         run: go test -short ./... -timeout 60s
+
+      - name: Docker Integration Test
+        run: make docker/test

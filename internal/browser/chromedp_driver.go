@@ -207,9 +207,11 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 	)
 
 	cookies := buildCookies(cfg.InitialCookies, cfg.BypassGoogleConsent)
-	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
-		return network.SetCookies(cookies).Do(ctx)
-	}))
+	if len(cookies) > 0 {
+		initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
+			return network.SetCookies(cookies).Do(ctx)
+		}))
+	}
 
 	initActions = append(initActions, chromedp.Navigate("about:blank"))
 

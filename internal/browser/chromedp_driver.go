@@ -9,6 +9,7 @@ import (
 	"image/jpeg"
 	"log/slog"
 	"math/rand/v2"
+	"strings"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -172,19 +173,66 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		)
 	}
 
+	var cookies []*network.CookieParam
+
 	if len(cfg.InitialCookies) > 0 {
-		cookies := make([]*network.CookieParam, len(cfg.InitialCookies))
-		for i, c := range cfg.InitialCookies {
+		for _, c := range cfg.InitialCookies {
 			path := c.Path
 			if path == "" {
 				path = "/"
 			}
-			cookies[i] = &network.CookieParam{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: path}
+			cookies = append(cookies, &network.CookieParam{
+				Name:   c.Name,
+				Value:  c.Value,
+				Domain: c.Domain,
+				Path:   path,
+			})
 		}
-		initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
-			return network.SetCookies(cookies).Do(ctx)
-		}))
 	}
+
+	// Always inject default bypass cookies for Google and YouTube domains to prevent consent overlays
+	googleDomains := []string{
+		".google.com",
+		".google.de",
+		".google.co.uk",
+		".google.fr",
+		".google.it",
+		".google.es",
+		".google.nl",
+		".google.co.jp",
+		".google.ca",
+		".google.com.br",
+		".google.pl",
+		".google.ch",
+		".google.at",
+		".google.be",
+		".google.cz",
+		".google.se",
+		".google.no",
+		".google.dk",
+		".google.fi",
+		".youtube.com",
+	}
+	for _, domain := range googleDomains {
+		cookies = append(cookies,
+			&network.CookieParam{
+				Name:   "SOCS",
+				Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
+				Domain: domain,
+				Path:   "/",
+			},
+			&network.CookieParam{
+				Name:   "CONSENT",
+				Value:  "PENDING+999",
+				Domain: domain,
+				Path:   "/",
+			},
+		)
+	}
+
+	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
+		return network.SetCookies(cookies).Do(ctx)
+	}))
 
 	initActions = append(initActions, chromedp.Navigate("about:blank"))
 
@@ -236,22 +284,23 @@ func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) err
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	if delayMs <= 0 {
-		return chromedp.Run(actionCtx, chromedp.SendKeys("document", text, chromedp.ByJSPath))
-	}
+	parts := parseSpecialKeys(text)
+	delay := time.Duration(max(0, delayMs)) * time.Millisecond
 
-	delay := time.Duration(delayMs) * time.Millisecond
 	return chromedp.Run(actionCtx, chromedp.ActionFunc(func(ctx context.Context) error {
-		runes := []rune(text)
-		for i, ch := range runes {
-			if i > 0 {
+		for i, seg := range parts {
+			if i > 0 && delay > 0 {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-time.After(delay):
 				}
 			}
-			if err := chromedp.SendKeys("document", string(ch), chromedp.ByJSPath).Do(ctx); err != nil {
+			var opts []chromedp.KeyOption
+			if seg.modifier != 0 {
+				opts = append(opts, chromedp.KeyModifiers(seg.modifier))
+			}
+			if err := chromedp.KeyEvent(seg.keys, opts...).Do(ctx); err != nil {
 				return err
 			}
 		}
@@ -438,3 +487,91 @@ func mouseRelease(x, y int, btn input.MouseButton, clickCount int) chromedp.Acti
 		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
 	})
 }
+
+type keySegment struct {
+	keys     string
+	modifier input.Modifier
+}
+
+func parseSpecialKeys(text string) []keySegment {
+	var parts []keySegment
+	runes := []rune(text)
+	n := len(runes)
+	i := 0
+
+	for i < n {
+		if i+1 < n && runes[i] == '{' && runes[i+1] == '{' {
+			parts = append(parts, keySegment{keys: "{"})
+			i += 2
+			continue
+		}
+		if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
+			parts = append(parts, keySegment{keys: "}"})
+			i += 2
+			continue
+		}
+
+		if runes[i] == '{' {
+			closeIdx := -1
+			for j := i + 1; j < n; j++ {
+				if runes[j] == '}' {
+					closeIdx = j
+					break
+				}
+			}
+			if closeIdx != -1 {
+				name := strings.ToLower(string(runes[i+1 : closeIdx]))
+				if seg, ok := resolveSpecialKey(name); ok {
+					parts = append(parts, seg)
+					i = closeIdx + 1
+					continue
+				}
+			}
+		}
+
+		parts = append(parts, keySegment{keys: string(runes[i])})
+		i++
+	}
+
+	return parts
+}
+
+func resolveSpecialKey(name string) (keySegment, bool) {
+	switch name {
+	case "enter":
+		return keySegment{keys: "\r"}, true
+	case "tab":
+		return keySegment{keys: "\t"}, true
+	case "escape", "esc":
+		return keySegment{keys: "\x1b"}, true
+	case "backspace":
+		return keySegment{keys: "\b"}, true
+	case "delete":
+		return keySegment{keys: "\x7f"}, true
+	case "up":
+		return keySegment{keys: "\u0304"}, true
+	case "down":
+		return keySegment{keys: "\u0301"}, true
+	case "left":
+		return keySegment{keys: "\u0302"}, true
+	case "right":
+		return keySegment{keys: "\u0303"}, true
+	case "home":
+		return keySegment{keys: "\u0306"}, true
+	case "end":
+		return keySegment{keys: "\u0305"}, true
+	case "pageup":
+		return keySegment{keys: "\u0308"}, true
+	case "pagedown":
+		return keySegment{keys: "\u0307"}, true
+	case "shift+tab", "shift-tab":
+		return keySegment{keys: "\t", modifier: input.ModifierShift}, true
+	}
+	// {Ctrl+X} / {Ctrl-X} where X is a single letter or digit
+	if (strings.HasPrefix(name, "ctrl+") || strings.HasPrefix(name, "ctrl-")) && len([]rune(name)) == 6 {
+		ch := strings.ToLower(string([]rune(name)[5]))
+		return keySegment{keys: ch, modifier: input.ModifierCtrl}, true
+	}
+	return keySegment{}, false
+}
+

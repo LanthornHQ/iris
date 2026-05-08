@@ -6,6 +6,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/chromedp/cdproto/input"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -183,3 +184,76 @@ func TestNewDriver_ContextCancellation(t *testing.T) {
 	_, err := NewDriver(ctx, logger, Config{Headless: true, NoSandbox: true})
 	require.Error(t, err)
 }
+
+func TestParseSpecialKeys(t *testing.T) {
+	seg := func(keys string, mod ...input.Modifier) keySegment {
+		if len(mod) > 0 {
+			return keySegment{keys: keys, modifier: mod[0]}
+		}
+		return keySegment{keys: keys}
+	}
+
+	tests := []struct {
+		input    string
+		expected []keySegment
+	}{
+		{
+			input:    "hello",
+			expected: []keySegment{seg("h"), seg("e"), seg("l"), seg("l"), seg("o")},
+		},
+		{
+			input: "Tokyo weather{Enter}",
+			expected: []keySegment{
+				seg("T"), seg("o"), seg("k"), seg("y"), seg("o"), seg(" "),
+				seg("w"), seg("e"), seg("a"), seg("t"), seg("h"), seg("e"), seg("r"),
+				seg("\r"),
+			},
+		},
+		{
+			input:    "{{curly}}",
+			expected: []keySegment{seg("{"), seg("c"), seg("u"), seg("r"), seg("l"), seg("y"), seg("}")},
+		},
+		{
+			input:    "{Tab}next",
+			expected: []keySegment{seg("\t"), seg("n"), seg("e"), seg("x"), seg("t")},
+		},
+		{
+			input:    "{Ctrl+A}{Backspace}",
+			expected: []keySegment{seg("a", input.ModifierCtrl), seg("\b")},
+		},
+		{
+			input: "case{enter}test",
+			expected: []keySegment{
+				seg("c"), seg("a"), seg("s"), seg("e"), seg("\r"),
+				seg("t"), seg("e"), seg("s"), seg("t"),
+			},
+		},
+		{
+			input:    "{Shift-Tab}",
+			expected: []keySegment{seg("\t", input.ModifierShift)},
+		},
+		{
+			input:    "{Ctrl+C}{Ctrl+V}",
+			expected: []keySegment{seg("c", input.ModifierCtrl), seg("v", input.ModifierCtrl)},
+		},
+		{
+			input:    "{Up}{Down}{Left}{Right}",
+			expected: []keySegment{seg("\u0304"), seg("\u0301"), seg("\u0302"), seg("\u0303")},
+		},
+		{
+			input:    "{Home}{End}{PageUp}{PageDown}",
+			expected: []keySegment{seg("\u0306"), seg("\u0305"), seg("\u0308"), seg("\u0307")},
+		},
+		{
+			input:    "{unknown}x",
+			expected: []keySegment{seg("{"), seg("u"), seg("n"), seg("k"), seg("n"), seg("o"), seg("w"), seg("n"), seg("}"), seg("x")},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.expected, parseSpecialKeys(tt.input))
+		})
+	}
+}
+

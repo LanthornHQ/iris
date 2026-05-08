@@ -121,61 +121,83 @@ func buildStealthJS(hwConcurrency, deviceMemory int) string {
 }
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
+	shared := commonFlags(cfg)
+
 	if cfg.Stealth {
-		opts := []chromedp.ExecAllocatorOption{
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("no-sandbox", cfg.NoSandbox),
-			chromedp.Flag("disable-dev-shm-usage", true),
-			chromedp.WindowSize(cfg.Width, cfg.Height),
-			chromedp.Flag("hide-scrollbars", true),
-			chromedp.Flag("mute-audio", true),
-			chromedp.Flag("no-first-run", true),
-			chromedp.Flag("no-default-browser-check", true),
-			chromedp.Flag("disable-notifications", true),
-			chromedp.Flag("disable-backgrounding-occluded-windows", true),
-			chromedp.Flag("disable-background-timer-throttling", true),
-			chromedp.Flag("disable-renderer-backgrounding", true),
-			chromedp.Flag("disable-background-networking", true),
-			chromedp.Flag("disable-component-update", true),
-			chromedp.Flag("disable-domain-reliability", true),
-			chromedp.Flag("disable-crash-reporter", true),
-			chromedp.Flag("password-store", "basic"),
+		opts := shared
+		opts = append(opts,
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
 			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
-			chromedp.Flag("lang", "en-US"),
-		}
+		)
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
 		}
 		return opts
 	}
 
-	opts := chromedp.DefaultExecAllocatorOptions[:]
+	opts := append(chromedp.DefaultExecAllocatorOptions[:], shared...)
 	if cfg.Headless {
 		opts = append(opts, chromedp.Headless)
 	}
-	opts = append(opts,
-		chromedp.Flag("no-sandbox", cfg.NoSandbox),
-		chromedp.Flag("disable-dev-shm-usage", true),
+	return opts
+}
+
+// commonFlags returns the allocator options applied in both stealth and
+// non-stealth mode. Stealth mode appends its own overrides on top.
+func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
+	return []chromedp.ExecAllocatorOption{
+		// --- Rendering ---
 		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("no-sandbox", cfg.NoSandbox),
 		chromedp.WindowSize(cfg.Width, cfg.Height),
+		chromedp.Flag("window-position", "0,0"),
 		chromedp.Flag("hide-scrollbars", true),
+		chromedp.Flag("disable-smooth-scrolling", true),
 		chromedp.Flag("mute-audio", true),
+
+		// --- Suppress first-run / onboarding UI ---
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("no-default-browser-check", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-search-engine-choice-screen", true),
+
+		// --- Suppress permission / dialog prompts ---
+		chromedp.Flag("deny-permission-prompts", true),
 		chromedp.Flag("disable-notifications", true),
-		chromedp.Flag("disable-backgrounding-occluded-windows", true),
-		chromedp.Flag("disable-background-timer-throttling", true),
-		chromedp.Flag("disable-renderer-backgrounding", true),
+		chromedp.Flag("disable-hang-monitor", true),
+		chromedp.Flag("disable-prompt-on-repost", true),
+		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+
+		// --- Disable features: UI chrome, telemetry, consent popups ---
+		chromedp.Flag("disable-features",
+			"SearchEngineChoice,SearchEngineChoiceScreen,"+
+				"FirstRunDesktopRefresh,FirstRunDesktopChoiceScreenRefresh,FirstRunDesktopRevamp,"+
+				"PrivacySandboxSettings4,GpcConsent,TopicsFencingV3,ConsentBump,"+
+				"OptimizationGuideModelDownloading,OptimizationHints,"+
+				"OptimizationTargetPrediction,OptimizationHintsFetching,"+
+				"Translate,MediaRouter,Preload"),
+
+		// Tell Chrome to skip its own consent/privacy-sandbox dialogs.
+		chromedp.Flag("enable-features", "PrivacySandboxConsentExemption"),
+
+		// --- Network & telemetry suppression ---
 		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
 		chromedp.Flag("disable-component-update", true),
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
+		chromedp.Flag("disable-component-extensions-with-background-pages", true),
+		chromedp.Flag("no-pings", true),
+
+		// --- Credentials ---
 		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
+
+		// --- Language / locale ---
 		chromedp.Flag("lang", "en-US"),
-	)
-	return opts
+	}
 }
 
 func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {

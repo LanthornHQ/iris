@@ -511,14 +511,23 @@ func (d *chromedpDriver) DrawMarks(ctx context.Context) error {
 		elements.forEach(el => {
 			const rect = el.getBoundingClientRect();
 			const style = window.getComputedStyle(el);
-			if (rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.opacity !== '0') {
+			
+			// Check if element is currently visible in the viewport
+			const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && 
+			                   rect.left < window.innerWidth && rect.right > 0;
+			                   
+			if (inViewport && rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.opacity !== '0') {
 				el.setAttribute('data-iris-id', idCounter);
 				
 				// Draw the yellow badge
 				const mark = document.createElement('div');
 				mark.className = 'iris-som-mark';
 				mark.innerText = idCounter;
-				mark.style.cssText = 'position:fixed; top:'+Math.max(0, rect.top-10)+'px; left:'+Math.max(0, rect.left-10)+'px; background:yellow; color:black; font-weight:bold; font-size:14px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px;';
+				
+				const markTop = Math.max(0, rect.top - 10);
+				const markLeft = Math.max(0, rect.left - 10);
+				
+				mark.style.cssText = 'position:fixed; top:'+markTop+'px; left:'+markLeft+'px; background:yellow; color:black; font-weight:bold; font-size:14px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px;';
 				document.body.appendChild(mark);
 				idCounter++;
 			}

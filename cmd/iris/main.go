@@ -28,6 +28,15 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 {
+		for _, arg := range os.Args[1:] {
+			if arg == "-v" || arg == "-version" || arg == "--version" {
+				fmt.Fprintf(os.Stdout, "iris %s\n", version)
+				return nil
+			}
+		}
+	}
+
 	dotenvErr := godotenv.Load()
 
 	logLevel := slog.LevelDebug

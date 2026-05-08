@@ -16,9 +16,6 @@ Instructions for AI coding agents working on this repository.
 | Docker (logs) | `make docker/logs` |
 | Docker (stop) | `make docker/stop` |
 | Docker (build) | `make docker/build` |
-| Docker (push local) | `make docker/push` |
-| Local Registry (start) | `make docker/registry` |
-| Local Registry (stop) | `make docker/registry/stop` |
 
 Always run `make lint && make test` before considering work done. Lint installs `golangci-lint` v2.11.4 to `bin/` automatically if missing.
 

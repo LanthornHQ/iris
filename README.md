@@ -1,6 +1,6 @@
 # Iris — The Eye of AI-Native Synthetic Monitoring
 
-Iris is a stateless, vision-first MCP server that exposes **9 browser-control tools** over the Model Context Protocol (MCP / JSON-RPC 2.0). It operates as the "limb and eye" of **Lanthorn**—the control plane and orchestrator for autonomous synthetic monitoring.
+Iris is a stateless, vision-first MCP server that exposes **8 browser-control tools** over the Model Context Protocol (MCP / JSON-RPC 2.0). It operates as the "limb and eye" of **Lanthorn**—the control plane and orchestrator for autonomous synthetic monitoring.
 
 Instead of traditional HTML selectors or brittle CSS paths, Iris uses a **"Vision-First" coordinate-first interface**. It sees target web screens exactly as human users do, rendering it immune to the frontend changes that break standard testing scripts.
 
@@ -14,7 +14,6 @@ graph LR
     subgraph IRIS["Iris — The Eye & Limb (this repo)"]
         MCP["MCP Server\nHTTP"]
         DISPATCH["Tool Dispatcher"]
-        GR["Grounding Client\n(point mode)"]
         BROWSER["Browser Driver\nchromedp (headless Chrome)"]
     end
 
@@ -22,7 +21,6 @@ graph LR
 
     REASON -->|"tools/call JSON-RPC"| MCP
     MCP --> DISPATCH
-    DISPATCH --> GR
     DISPATCH --> BROWSER
     BROWSER -->|"CDP mouse/keyboard\nNavigate, Screenshot"| TARGET
     TARGET -->|"screenshots"| DISPATCH
@@ -60,7 +58,7 @@ Iris is designed to be intentionally thin and stateless. It executes low-level v
 
 ### Click Annotation
 
-When `IRIS_ANNOTATE_CLICKS=1`, the `click` and `type_text` tools draw a red dot at the click coordinates on the post-click screenshot. This helps the agent visually verify where it clicked.
+The `click` tool can draw a red dot at the click coordinates on the post-click screenshot to help visually verify where it clicked. This can be enabled per-call using the `annotate` parameter, or server-wide by setting `IRIS_ANNOTATE_CLICKS=1`.
 
 ---
 

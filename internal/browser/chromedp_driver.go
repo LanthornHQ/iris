@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"image/jpeg"
 	"log/slog"
-	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -16,10 +15,12 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/kb"
+
+	"github.com/LanthornHQ/iris/internal/imageutil"
 )
 
 const (
-	defaultJPEGQuality  = 85
 	defaultPollInterval = 200 * time.Millisecond
 	defaultTimeout      = 30 * time.Second
 	doubleClickCount    = 2
@@ -33,92 +34,9 @@ type chromedpDriver struct {
 	timeout    time.Duration
 }
 
-var stealthHWOptions = []int{4, 8, 16}
-
-// buildStealthJS generates stealth override JS with randomized hardware fingerprint values
-// to avoid sessions sharing an identical browser signature.
-func buildStealthJS(hwConcurrency, deviceMemory int) string {
-	return fmt.Sprintf(`(function() {
-	// --- navigator properties ---
+const stealthJS = `(function() {
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-	Object.defineProperty(navigator, 'language',  {get: () => 'en-US'});
-	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
-	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
-	Object.defineProperty(navigator, 'deviceMemory',        {get: () => %d});
-
-	// Plugins: real Chrome always shows at least the PDF plugin.
-	Object.defineProperty(navigator, 'plugins', {get: () => {
-		var pdf = {name:'Chrome PDF Plugin',filename:'internal-pdf-viewer',description:'Portable Document Format',length:1};
-		var arr = [pdf];
-		arr.item = function(i) { return this[i]; };
-		arr.namedItem = function(n) { for(var i=0;i<this.length;i++){if(this[i].name===n)return this[i];} return null; };
-		arr.refresh = function() {};
-		Object.setPrototypeOf(arr, PluginArray.prototype);
-		return arr;
-	}});
-
-	// MimeTypes: match the PDF plugin above.
-	Object.defineProperty(navigator, 'mimeTypes', {get: () => {
-		var pdf = {type:'application/pdf',suffixes:'pdf',description:'Portable Document Format',enabledPlugin:navigator.plugins[0]};
-		var arr = [pdf];
-		arr.item = function(i) { return this[i]; };
-		arr.namedItem = function(t) { for(var i=0;i<this.length;i++){if(this[i].type===t)return this[i];} return null; };
-		Object.setPrototypeOf(arr, MimeTypeArray.prototype);
-		return arr;
-	}});
-
-	// --- window dimensions: headless reports outerHeight=0 ---
-	try {
-		Object.defineProperty(window, 'outerWidth',  {get: () => window.innerWidth});
-		Object.defineProperty(window, 'outerHeight', {get: () => window.innerHeight + 85});
-	} catch(e) {}
-
-	// --- window.chrome: detectors inspect app, runtime, csi ---
-	window.chrome = {
-		app: {
-			isInstalled: false,
-			InstallState: {DISABLED:'disabled',INSTALLED:'installed',NOT_INSTALLED:'not_installed'},
-			RunningState:  {CANNOT_RUN:'cannot_run',READY_TO_RUN:'ready_to_run',RUNNING:'running'},
-			getDetails:    function(){},
-			getIsInstalled:function(){},
-			installState:  function(){},
-		},
-		runtime: {
-			connect:     function(){return{disconnect:function(){},postMessage:function(){},onMessage:{addListener:function(){}},onDisconnect:{addListener:function(){}}};},
-			sendMessage: function(){},
-			getManifest: function(){return {};},
-			id:          undefined,
-			OnInstalledReason: {CHROME_UPDATE:'chrome_update',INSTALL:'install',SHARED_MODULE_UPDATE:'shared_module_update',UPDATE:'update'},
-			PlatformOs:        {ANDROID:'android',CROS:'cros',LINUX:'linux',MAC:'mac',OPENBSD:'openbsd',WIN:'win'},
-			PlatformArch:      {ARM:'arm','ARM64':'arm64',MIPS:'mips',MIPS64:'mips64',X86_32:'x86-32',X86_64:'x86-64'},
-			RequestUpdateCheckStatus: {NO_UPDATE:'no_update',THROTTLED:'throttled',UPDATE_AVAILABLE:'update_available'},
-		},
-		loadTimes: function(){},
-		csi:       function(){return {startE:Date.now(),onloadT:Date.now(),pageT:Date.now(),tran:15};},
-	};
-
-	// --- Permissions ---
-	const _origQuery = window.navigator.permissions.query;
-	window.navigator.permissions.query = (parameters) => (
-		parameters.name === 'notifications' ?
-			Promise.resolve({state: (typeof Notification !== 'undefined' ? Notification.permission : 'default')}) :
-			_origQuery(parameters)
-	);
-
-	// --- WebGL: patch both WebGL1 and WebGL2 contexts ---
-	function patchWebGL(ctx) {
-		if (!ctx) return;
-		const orig = ctx.prototype.getParameter;
-		ctx.prototype.getParameter = function(parameter) {
-			if (parameter === 37445) return 'Google Inc. (NVIDIA)';
-			if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
-			return orig.call(this, parameter);
-		};
-	}
-	patchWebGL(WebGLRenderingContext);
-	if (typeof WebGL2RenderingContext !== 'undefined') patchWebGL(WebGL2RenderingContext);
-})();`, hwConcurrency, deviceMemory)
-}
+})();`
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 	shared := commonFlags(cfg)
@@ -127,7 +45,6 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 		opts := shared
 		opts = append(opts,
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
-			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
 		)
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
@@ -200,7 +117,7 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 	}
 }
 
-func buildCookies(initial []CookieDef) []*network.CookieParam {
+func buildCookies(initial []CookieDef, bypassGoogleConsent bool) []*network.CookieParam {
 	var cookies []*network.CookieParam
 
 	for _, c := range initial {
@@ -216,44 +133,46 @@ func buildCookies(initial []CookieDef) []*network.CookieParam {
 		})
 	}
 
-	// Always inject default bypass cookies for Google and YouTube domains to prevent consent overlays
-	googleDomains := []string{
-		".google.com",
-		".google.de",
-		".google.co.uk",
-		".google.fr",
-		".google.it",
-		".google.es",
-		".google.nl",
-		".google.co.jp",
-		".google.ca",
-		".google.com.br",
-		".google.pl",
-		".google.ch",
-		".google.at",
-		".google.be",
-		".google.cz",
-		".google.se",
-		".google.no",
-		".google.dk",
-		".google.fi",
-		".youtube.com",
-	}
-	for _, domain := range googleDomains {
-		cookies = append(cookies,
-			&network.CookieParam{
-				Name:   "SOCS",
-				Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
-				Domain: domain,
-				Path:   "/",
-			},
-			&network.CookieParam{
-				Name:   "CONSENT",
-				Value:  "PENDING+999",
-				Domain: domain,
-				Path:   "/",
-			},
-		)
+	if bypassGoogleConsent {
+		// Inject default bypass cookies for Google and YouTube domains to prevent consent overlays
+		googleDomains := []string{
+			".google.com",
+			".google.de",
+			".google.co.uk",
+			".google.fr",
+			".google.it",
+			".google.es",
+			".google.nl",
+			".google.co.jp",
+			".google.ca",
+			".google.com.br",
+			".google.pl",
+			".google.ch",
+			".google.at",
+			".google.be",
+			".google.cz",
+			".google.se",
+			".google.no",
+			".google.dk",
+			".google.fi",
+			".youtube.com",
+		}
+		for _, domain := range googleDomains {
+			cookies = append(cookies,
+				&network.CookieParam{
+					Name:   "SOCS",
+					Value:  "CAESHAgBEhIYNDY4NDY4NDY4NDY4NDY4NDY4GgVlbi1VUw",
+					Domain: domain,
+					Path:   "/",
+				},
+				&network.CookieParam{
+					Name:   "CONSENT",
+					Value:  "PENDING+999",
+					Domain: domain,
+					Path:   "/",
+				},
+			)
+		}
 	}
 	return cookies
 }
@@ -293,9 +212,6 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 	var initActions []chromedp.Action
 
 	if cfg.Stealth {
-		hwConcurrency := stealthHWOptions[rand.IntN(len(stealthHWOptions))] //nolint:gosec // non-security randomisation of browser fingerprint values
-		deviceMemory := stealthHWOptions[rand.IntN(len(stealthHWOptions))]  //nolint:gosec // non-security randomisation of browser fingerprint values
-		stealthJS := buildStealthJS(hwConcurrency, deviceMemory)
 		initActions = append(initActions,
 			chromedp.ActionFunc(func(ctx context.Context) error {
 				_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
@@ -304,7 +220,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		)
 	}
 
-	cookies := buildCookies(cfg.InitialCookies)
+	cookies := buildCookies(cfg.InitialCookies, cfg.BypassGoogleConsent)
 	initActions = append(initActions, chromedp.ActionFunc(func(ctx context.Context) error {
 		return network.SetCookies(cookies).Do(ctx)
 	}))
@@ -412,7 +328,7 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 		var err error
 		buf, err = page.CaptureScreenshot().
 			WithFormat(page.CaptureScreenshotFormatJpeg).
-			WithQuality(defaultJPEGQuality).
+			WithQuality(imageutil.DefaultJPEGQuality).
 			Do(ctx)
 		return err
 	})); err != nil {
@@ -487,7 +403,7 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 		}
 		iter++
 
-		if iter > 1 && count == prevCount {
+		if iter > 1 && count == prevCount && count >= 0 {
 			elapsed := time.Since(start)
 			d.logger.InfoContext(ctx, "wait_for_stable: DOM stable", "iterations", iter, "mutation_count", count, "elapsed_ms", elapsed.Milliseconds())
 			return true, elapsed.Milliseconds(), nil
@@ -593,6 +509,7 @@ func tryParseSpecial(runes []rune, i int) (keySegment, int, bool) {
 	return keySegment{}, i, false
 }
 
+//nolint:gocognit,mnd // Function parsing logic has high density and index offsets
 func parseSpecialKeys(text string) []keySegment {
 	var parts []keySegment
 	runes := []rune(text)
@@ -600,6 +517,29 @@ func parseSpecialKeys(text string) []keySegment {
 	i := 0
 
 	for i < n {
+		// Look for escape block "{{ ... }}"
+		if i+1 < n && runes[i] == '{' && runes[i+1] == '{' {
+			// Find the closing "}}"
+			closeIdx := -1
+			for j := i + 2; j+1 < n; j++ {
+				if runes[j] == '}' && runes[j+1] == '}' {
+					closeIdx = j
+					break
+				}
+			}
+			if closeIdx != -1 {
+				// We found a matching "}}". We emit '{', the characters in between, and then '}'
+				parts = append(parts, keySegment{keys: "{"})
+				content := runes[i+2 : closeIdx]
+				for _, r := range content {
+					parts = append(parts, keySegment{keys: string(r)})
+				}
+				parts = append(parts, keySegment{keys: "}"})
+				i = closeIdx + 2
+				continue
+			}
+		}
+
 		if i+1 < n && runes[i] == '}' && runes[i+1] == '}' {
 			parts = append(parts, keySegment{keys: "}"})
 			i += 2
@@ -619,41 +559,84 @@ func parseSpecialKeys(text string) []keySegment {
 	return parts
 }
 
-func resolveSpecialKey(name string) (keySegment, bool) {
-	switch name {
+func lookupBaseKey(key string, mod input.Modifier) (keySegment, bool) {
+	switch key {
 	case "enter":
-		return keySegment{keys: "\r"}, true
+		return keySegment{keys: "\r", modifier: mod}, true
 	case "tab":
-		return keySegment{keys: "\t"}, true
+		return keySegment{keys: "\t", modifier: mod}, true
 	case "escape", "esc":
-		return keySegment{keys: "\x1b"}, true
+		return keySegment{keys: "\x1b", modifier: mod}, true
 	case "backspace":
-		return keySegment{keys: "\b"}, true
+		return keySegment{keys: "\b", modifier: mod}, true
 	case "delete":
-		return keySegment{keys: "\x7f"}, true
+		return keySegment{keys: "\x7f", modifier: mod}, true
 	case "up":
-		return keySegment{keys: "\u0304"}, true
+		return keySegment{keys: kb.ArrowUp, modifier: mod}, true
 	case "down":
-		return keySegment{keys: "\u0301"}, true
+		return keySegment{keys: kb.ArrowDown, modifier: mod}, true
 	case "left":
-		return keySegment{keys: "\u0302"}, true
+		return keySegment{keys: kb.ArrowLeft, modifier: mod}, true
 	case "right":
-		return keySegment{keys: "\u0303"}, true
+		return keySegment{keys: kb.ArrowRight, modifier: mod}, true
 	case "home":
-		return keySegment{keys: "\u0306"}, true
+		return keySegment{keys: kb.Home, modifier: mod}, true
 	case "end":
-		return keySegment{keys: "\u0305"}, true
+		return keySegment{keys: kb.End, modifier: mod}, true
 	case "pageup":
-		return keySegment{keys: "\u0308"}, true
+		return keySegment{keys: kb.PageUp, modifier: mod}, true
 	case "pagedown":
-		return keySegment{keys: "\u0307"}, true
-	case "shift+tab", "shift-tab":
-		return keySegment{keys: "\t", modifier: input.ModifierShift}, true
+		return keySegment{keys: kb.PageDown, modifier: mod}, true
 	}
-	// {Ctrl+X} / {Ctrl-X} where X is a single letter or digit
-	if (strings.HasPrefix(name, "ctrl+") || strings.HasPrefix(name, "ctrl-")) && len([]rune(name)) == 6 {
-		ch := strings.ToLower(string([]rune(name)[5]))
-		return keySegment{keys: ch, modifier: input.ModifierCtrl}, true
+	return keySegment{}, false
+}
+
+func resolveSpecialKey(name string) (keySegment, bool) {
+	normalized := strings.ReplaceAll(name, "-", "+")
+	parts := strings.Split(normalized, "+")
+
+	if len(parts) == 0 {
+		return keySegment{}, false
 	}
+
+	// If it's a single part, just look it up in our base map
+	if len(parts) == 1 {
+		return lookupBaseKey(parts[0], 0)
+	}
+
+	// If it has multiple parts (modifiers + key)
+	var mod input.Modifier
+	keyPart := ""
+
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			keyPart = part
+			break
+		}
+		switch part {
+		case "ctrl", "control":
+			mod |= input.ModifierCtrl
+		case "shift":
+			mod |= input.ModifierShift
+		case "alt":
+			mod |= input.ModifierAlt
+		case "meta", "command", "cmd", "win":
+			mod |= input.ModifierMeta
+		default:
+			return keySegment{}, false
+		}
+	}
+
+	// Resolve the last part using our base key table
+	seg, ok := lookupBaseKey(keyPart, mod)
+	if ok {
+		return seg, true
+	}
+
+	// If the keyPart is a single character, we can treat it as a literal single-character key segment
+	if len([]rune(keyPart)) == 1 {
+		return keySegment{keys: keyPart, modifier: mod}, true
+	}
+
 	return keySegment{}, false
 }

@@ -31,7 +31,7 @@ Go 1.24+ required (go.mod specifies 1.26.1).
 
 ## Architecture
 
-Iris is a stateless MCP server exposing 9 browser-control tools via JSON-RPC 2.0 (HTTP on `POST /mcp`), using chromedp (headless Chrome) and a vision grounding model for coordinate-based interaction. Internally, the MCP dispatch uses `github.com/sevigo/goframe/agent`.
+Iris is a stateless MCP server exposing 8 browser-control tools via JSON-RPC 2.0 (HTTP on `POST /mcp`), using chromedp (real Chrome running under Xvfb) for coordinate-based interaction. Internally, the MCP dispatch uses `github.com/sevigo/goframe/agent`.
 
 Module: `github.com/LanthornHQ/iris`
 
@@ -39,22 +39,17 @@ Module: `github.com/LanthornHQ/iris`
 cmd/iris/main.go          — entry point: signal handling, .env load, logger init, browser driver, wire tools, serve
 internal/mcp/             — MCP server: JSON-RPC 2.0 dispatch, RunHTTP
 internal/browser/          — browser.Driver interface + chromedp implementation
-internal/grounding/        — HTTP client for vision grounding (point mode) and verification
-internal/tools/            — 9 tools + registry + arg helpers
+internal/tools/            — 8 tools + registry + arg helpers
 internal/metrics/           — Prometheus metrics (iris_* prefix)
 ```
 
 Tools are registered via `ToolRegistry.RegisterAll(server)` in `internal/tools/registry.go` — **not** individually in `main.go`.
 
-The 9 tools: `navigate`, `screenshot`, `click`, `type_text`, `scroll`, `wait_for_stable`, `verify_screen`, `sleep`, `get_datetime`.
+The 8 tools: `navigate`, `screenshot`, `click`, `type_text`, `scroll`, `wait_for_stable`, `sleep`, `get_datetime`.
 
 ### browser.Driver
 
 `browser.Driver` is an interface with 9 methods: `Navigate`, `Click`, `DoubleClick`, `Type`, `Scroll`, `Screenshot`, `WaitForStable`, `Title`, `Close`. Implementation: `internal/browser/chromedp_driver.go`.
-
-### Grounding Client
-
-`grounding.Client` handles vision grounding and verification. `tools.GroundingClient` and `tools.VerifyClient` are interfaces that `*grounding.Client` satisfies, enabling test mocking. When `IRIS_GROUNDING_URL` is unset, grounding-dependent tools (`type_text` with `description`, `verify_screen`) still register but will fail at call time.
 
 ### Tool Argument Handling
 
@@ -79,8 +74,8 @@ JSON-RPC numbers decode as `float64` in Go. Two helpers in `internal/tools/args.
 Stealth mode (default: on) helps bypass bot detection (Cloudflare, etc.):
 
 - Removes `--enable-automation` and adds `--disable-blink-features=AutomationControlled`
-- Uses Chrome's `--headless=new` mode instead of the old headless mode
-- Injects JavaScript to override `navigator.webdriver`, `navigator.plugins`, `navigator.languages`, `window.chrome`, permissions API, and WebGL fingerprinting
+- Injects a minimal JavaScript snippet to override `navigator.webdriver`
+- Since real Chrome runs under Xvfb, authentic device characteristics (plugins, dimensions, WebGL) are natively preserved without artificial spoofing discrepancies
 - Set `IRIS_STEALTH=false` to disable (falls back to standard chromedp defaults)
 
 ### Testing
@@ -90,7 +85,7 @@ Stealth mode (default: on) helps bypass bot detection (Cloudflare, etc.):
 - Table-driven tests for parameterized cases.
 - Use `t.Setenv()` for env var tests, `httptest.NewServer` for HTTP tests.
 - Silenced logger in tests: see `internal/tools/tools_test.go` (`testLogger` variable).
-- Mock `browser.Driver` and `tools.GroundingClient`/`tools.VerifyClient` for tool unit tests — see `internal/tools/tools_test.go` and `internal/browser/browser_test.go`.
+- Mock `browser.Driver` for tool unit tests — see `internal/tools/tools_test.go` and `internal/browser/browser_test.go`.
 
 ## Linter Notes
 

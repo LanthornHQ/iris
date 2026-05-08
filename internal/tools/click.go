@@ -4,15 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/LanthornHQ/iris/internal/browser"
 )
 
 type Click struct {
-	Logger *slog.Logger
-	Driver browser.Driver
+	Logger          *slog.Logger
+	Driver          browser.Driver
+	AnnotateDefault bool
 }
 
 func (t *Click) Name() string { return "click" }
@@ -25,11 +25,12 @@ Parameters:
   - y (int, required): Y coordinate in viewport pixels.
   - button (string, optional): Mouse button. One of "left" (default), "right", "middle".
     Use "double" for a double-click.
+  - annotate (boolean, optional): If true, a red dot marks the click position on the returned screenshot.
+    Defaults to the server-wide default (determined by IRIS_ANNOTATE_CLICKS).
 
 Returns: {success: bool, image_base64: string, width: int, height: int}
   - success: true if the click was injected successfully.
-  - image_base64: post-click screenshot (base64 JPEG). When IRIS_ANNOTATE_CLICKS=1,
-    a red dot marks the click position.
+  - image_base64: post-click screenshot (base64 JPEG).
   - width/height: dimensions of the screenshot.
 
 Coordinate system: Viewport pixels. (0,0) is the top-left corner of the page.
@@ -58,6 +59,10 @@ func (t *Click) ParametersSchema() map[string]any {
 				"description": "Mouse button: left (default), right, middle, double",
 				"default":     "left",
 			},
+			"annotate": map[string]any{
+				"type":        "boolean",
+				"description": "If true, draw a red dot at the click coordinates on the returned screenshot",
+			},
 		},
 		"required": []string{"x", "y"},
 	}
@@ -77,7 +82,12 @@ func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
 		button = "left"
 	}
 
-	t.Logger.InfoContext(ctx, "click starting", "x", x, "y", y, "button", button)
+	annotate := t.AnnotateDefault
+	if val, ok := args["annotate"].(bool); ok {
+		annotate = val
+	}
+
+	t.Logger.InfoContext(ctx, "click starting", "x", x, "y", y, "button", button, "annotate", annotate)
 	start := time.Now()
 
 	isDoubleClick := button == "double"
@@ -104,7 +114,7 @@ func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
 	resp.Width = w
 	resp.Height = h
 
-	if os.Getenv("IRIS_ANNOTATE_CLICKS") == "1" {
+	if annotate {
 		annotated, annErr := drawClickDot(b64, x, y, w, h)
 		if annErr == nil {
 			resp.ImageBase64 = annotated

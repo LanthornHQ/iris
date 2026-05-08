@@ -3,8 +3,10 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 )
 
 // Driver controls a headless browser for coordinate-based interaction.
@@ -29,20 +31,21 @@ type CookieDef struct {
 }
 
 type Config struct {
-	Headless       bool
-	Width          int
-	Height         int
-	ChromePath     string
-	NoSandbox      bool
-	TimeoutMs      int
-	Stealth        bool
-	InitialCookies []CookieDef
+	Headless            bool
+	Width               int
+	Height              int
+	ChromePath          string
+	NoSandbox           bool
+	TimeoutMs           int
+	Stealth             bool
+	BypassGoogleConsent bool
+	InitialCookies      []CookieDef
 }
 
 const (
 	envFalse         = "false"
-	defaultWidth     = 1920
-	defaultHeight    = 1080
+	defaultWidth     = 1280
+	defaultHeight    = 720
 	defaultTimeoutMs = 30000
 )
 
@@ -51,7 +54,7 @@ func envIsFalse(v string) bool {
 }
 
 // ConfigFromEnv reads browser configuration from IRIS_* environment variables.
-func ConfigFromEnv() Config {
+func ConfigFromEnv() (Config, error) {
 	cfg := Config{
 		Headless:  true,
 		Width:     defaultWidth,
@@ -72,13 +75,27 @@ func ConfigFromEnv() Config {
 	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
 		cfg.Stealth = false
 	}
-	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
-		var cookies []CookieDef
-		if err := json.Unmarshal([]byte(v), &cookies); err == nil {
-			cfg.InitialCookies = cookies
+	if os.Getenv("IRIS_BYPASS_GOOGLE_CONSENT") == "1" {
+		cfg.BypassGoogleConsent = true
+	}
+	if v := os.Getenv("IRIS_WINDOW_WIDTH"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 {
+			cfg.Width = val
 		}
 	}
-	return cfg
+	if v := os.Getenv("IRIS_WINDOW_HEIGHT"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 {
+			cfg.Height = val
+		}
+	}
+	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
+		var cookies []CookieDef
+		if err := json.Unmarshal([]byte(v), &cookies); err != nil {
+			return cfg, fmt.Errorf("parsing IRIS_INITIAL_COOKIES: %w", err)
+		}
+		cfg.InitialCookies = cookies
+	}
+	return cfg, nil
 }
 
 // NewDriver starts a headless Chrome instance and returns a Driver.

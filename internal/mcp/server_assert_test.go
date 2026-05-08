@@ -18,7 +18,7 @@ import (
 )
 
 func newTestServer() *Server {
-	return NewServer(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), "test")
+	return NewServer(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), "test", 30*time.Second)
 }
 
 // --- Health Endpoint ---

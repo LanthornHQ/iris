@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 
 	"github.com/LanthornHQ/iris/internal/browser"
+	"github.com/LanthornHQ/iris/internal/logging"
 	"github.com/LanthornHQ/iris/internal/mcp"
 	"github.com/LanthornHQ/iris/internal/tools"
 )
@@ -27,43 +29,46 @@ func main() {
 	}
 }
 
-func run() error {
+func handleVersionFlag() bool {
 	if len(os.Args) > 1 {
 		for _, arg := range os.Args[1:] {
 			if arg == "-v" || arg == "-version" || arg == "--version" {
 				fmt.Fprintf(os.Stdout, "iris %s\n", version)
-				return nil
+				return true
 			}
 		}
 	}
+	return false
+}
 
-	dotenvErr := godotenv.Load()
+func parseToolTimeout(logger *slog.Logger) time.Duration {
+	const (
+		defaultToolTimeoutSec = 30
+		minToolTimeoutSec     = 1
+		maxToolTimeoutSec     = 300
+	)
 
-	logLevel := slog.LevelDebug
-	if v := os.Getenv("IRIS_LOG_LEVEL"); v != "" {
-		switch strings.ToLower(v) {
-		case "debug":
-			logLevel = slog.LevelDebug
-		case "info":
-			logLevel = slog.LevelInfo
-		case "warn":
-			logLevel = slog.LevelWarn
-		case "error":
-			logLevel = slog.LevelError
+	toolTimeout := defaultToolTimeoutSec * time.Second
+	if v := os.Getenv("IRIS_TOOL_TIMEOUT"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil {
+			switch {
+			case d < minToolTimeoutSec:
+				logger.Warn("IRIS_TOOL_TIMEOUT is too low; capping to 1 second", "value", d)
+				toolTimeout = minToolTimeoutSec * time.Second
+			case d > maxToolTimeoutSec:
+				logger.Warn("IRIS_TOOL_TIMEOUT is too high; capping to 300 seconds (5 minutes)", "value", d)
+				toolTimeout = maxToolTimeoutSec * time.Second
+			default:
+				toolTimeout = time.Duration(d) * time.Second
+			}
+		} else {
+			logger.Warn("invalid IRIS_TOOL_TIMEOUT; using default 30 seconds", "value", v)
 		}
 	}
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	slog.SetDefault(logger)
+	return toolTimeout
+}
 
-	if dotenvErr != nil {
-		logger.Warn("error loading .env file", "error", dotenvErr)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+func setupSignalHandling(logger *slog.Logger, cancel context.CancelFunc) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -71,19 +76,41 @@ func run() error {
 		logger.Info("received signal, shutting down", "signal", sig)
 		cancel()
 	}()
+}
+
+func run() error {
+	if handleVersionFlag() {
+		return nil
+	}
+
+	dotenvErr := godotenv.Load()
+	logger := logging.SetupLogger()
+	if dotenvErr != nil {
+		logger.Warn("error loading .env file", "error", dotenvErr)
+	}
+
+	toolTimeout := parseToolTimeout(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	setupSignalHandling(logger, cancel)
 
 	if apiKey, set := os.LookupEnv("IRIS_API_KEY"); set && apiKey == "" {
 		return errors.New("IRIS_API_KEY is set but empty; unset it to disable auth or provide a non-empty key")
 	}
 
-	browserCfg := browser.ConfigFromEnv()
+	browserCfg, err := browser.ConfigFromEnv()
+	if err != nil {
+		return fmt.Errorf("loading browser configuration: %w", err)
+	}
 	driver, err := browser.NewDriver(ctx, logger, browserCfg)
 	if err != nil {
 		return fmt.Errorf("failed to start browser: %w", err)
 	}
 	defer driver.Close()
 
-	server := mcp.NewServer(logger, version)
+	server := mcp.NewServer(logger, version, toolTimeout)
 	registry := tools.NewToolRegistry(logger, driver)
 	registry.RegisterAll(server)
 
@@ -95,9 +122,10 @@ func run() error {
 	logger.Info("iris configuration",
 		"version", version,
 		"addr", addr,
-		"tool_timeout", os.Getenv("IRIS_TOOL_TIMEOUT"),
+		"tool_timeout", toolTimeout,
 		"headless", browserCfg.Headless,
-		"window_size", fmt.Sprintf("%dx%d", browserCfg.Width, browserCfg.Height))
+		"window_size", fmt.Sprintf("%dx%d", browserCfg.Width, browserCfg.Height),
+	)
 
 	logger.Info("iris starting", "addr", addr, "version", version)
 	return server.RunHTTP(ctx, addr)

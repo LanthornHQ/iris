@@ -2,6 +2,7 @@ package tools
 
 import (
 	"log/slog"
+	"os"
 
 	"github.com/LanthornHQ/iris/internal/browser"
 	"github.com/LanthornHQ/iris/internal/mcp"
@@ -21,9 +22,11 @@ func NewToolRegistry(logger *slog.Logger, driver browser.Driver) *ToolRegistry {
 
 // RegisterAll registers all browser-control tools on the MCP server.
 func (r *ToolRegistry) RegisterAll(s *mcp.Server) {
+	annotateDefault := os.Getenv("IRIS_ANNOTATE_CLICKS") == "1"
+
 	s.RegisterTool(&Navigate{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Screenshot{Logger: r.Logger, Driver: r.Driver})
-	s.RegisterTool(&Click{Logger: r.Logger, Driver: r.Driver})
+	s.RegisterTool(&Click{Logger: r.Logger, Driver: r.Driver, AnnotateDefault: annotateDefault})
 	s.RegisterTool(&TypeText{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Scroll{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&WaitForStable{Logger: r.Logger, Driver: r.Driver})

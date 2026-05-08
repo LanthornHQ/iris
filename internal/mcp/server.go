@@ -9,7 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -47,13 +47,7 @@ type Server struct {
 	toolCount atomic.Int32
 }
 
-func NewServer(logger *slog.Logger, version string) *Server {
-	toolTimeout := defaultToolTimeout
-	if v := os.Getenv("IRIS_TOOL_TIMEOUT"); v != "" {
-		if d, err := strconv.Atoi(v); err == nil && d > 0 {
-			toolTimeout = time.Duration(d) * time.Second
-		}
-	}
+func NewServer(logger *slog.Logger, version string, toolTimeout time.Duration) *Server {
 	return &Server{
 		registry:    goframeagent.NewRegistry(),
 		logger:      logger,
@@ -130,6 +124,12 @@ func (s *Server) CallTool(ctx context.Context, name string, args map[string]any)
 }
 
 func (s *Server) RunHTTP(ctx context.Context, addr string) error {
+	listCount := len(s.ListTools())
+	regCount := int(s.toolCount.Load())
+	if listCount != regCount {
+		s.logger.ErrorContext(ctx, "tool count mismatch", "registered", regCount, "listed", listCount)
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mcp", s.requireAuth(s.handleMCP))
 	mux.HandleFunc("/health", s.handleHealth)
@@ -423,5 +423,6 @@ func keysOf(m map[string]any) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	return keys
 }

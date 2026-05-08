@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"image"
 	"image/jpeg"
 	"log/slog"
 	"time"
@@ -238,36 +237,59 @@ func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, erro
 
 	var buf []byte
 	if err := chromedp.Run(actionCtx,
-		chromedp.FullScreenshot(&buf, 100),
+		chromedp.FullScreenshot(&buf, 85),
 	); err != nil {
 		return "", 0, 0, fmt.Errorf("screenshot failed: %w", err)
 	}
 
-	var jpgBuf bytes.Buffer
-	img, _, err := image.Decode(bytes.NewReader(buf))
+	cfg, err := jpeg.DecodeConfig(bytes.NewReader(buf))
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("screenshot: image decode failed: %w", err)
+		return "", 0, 0, fmt.Errorf("screenshot: jpeg decode config failed: %w", err)
 	}
 
-	if err := jpeg.Encode(&jpgBuf, img, &jpeg.Options{Quality: 85}); err != nil {
-		return "", 0, 0, fmt.Errorf("jpeg encode failed: %w", err)
-	}
-
-	w := img.Bounds().Dx()
-	h := img.Bounds().Dy()
-	encoded := base64.StdEncoding.EncodeToString(jpgBuf.Bytes())
+	w := cfg.Width
+	h := cfg.Height
+	encoded := base64.StdEncoding.EncodeToString(buf)
 	d.logger.DebugContext(ctx, "screenshot captured", "width", w, "height", h, "base64_len", len(encoded))
 	return encoded, w, h, nil
 }
 
 func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error) {
 	d.logger.InfoContext(ctx, "wait_for_stable starting", "timeout_ms", timeoutMs, "threshold", threshold)
-	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
-	pollInterval := 200 * time.Millisecond
 	start := time.Now()
+	deadline := start.Add(time.Duration(timeoutMs) * time.Millisecond)
 
-	var prevB64 string
+	const observeJS = `
+(function() {
+	const obs = {count: 0};
+	const observer = new MutationObserver(() => { obs.count++; });
+	observer.observe(document, {childList: true, subtree: true, attributes: true, characterData: true});
+	window.__waitStableObs = obs;
+	window.__waitStableMO = observer;
+})();
+`
+
+	const checkJS = `(function() { return window.__waitStableObs ? window.__waitStableObs.count : -1; })()`
+	const cleanupJS = `(function() { if (window.__waitStableMO) { window.__waitStableMO.disconnect(); delete window.__waitStableMO; delete window.__waitStableObs; } })()`
+
+	actionCtx, cancel := d.withTimeout(ctx)
+	if err := chromedp.Run(actionCtx,
+		chromedp.Evaluate(observeJS, nil),
+	); err != nil {
+		cancel()
+		return false, 0, fmt.Errorf("wait_for_stable: mutation observer setup failed: %w", err)
+	}
+	cancel()
+
+	defer func() {
+		cleanupCtx, cleanupCancel := d.withTimeout(ctx)
+		_ = chromedp.Run(cleanupCtx, chromedp.Evaluate(cleanupJS, nil))
+		cleanupCancel()
+	}()
+
+	pollInterval := 200 * time.Millisecond
 	iter := 0
+	var prevCount int
 
 	for time.Now().Before(deadline) {
 		select {
@@ -276,28 +298,23 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 		default:
 		}
 
+		time.Sleep(pollInterval)
+
 		actionCtx, cancel := d.withTimeout(ctx)
-		b64, _, _, err := d.Screenshot(actionCtx)
-		cancel()
-		if err != nil {
-			return false, 0, fmt.Errorf("wait_for_stable: screenshot failed: %w", err)
+		var count int
+		if err := chromedp.Run(actionCtx, chromedp.Evaluate(checkJS, &count)); err != nil {
+			cancel()
+			return false, 0, fmt.Errorf("wait_for_stable: mutation check failed: %w", err)
 		}
+		cancel()
 		iter++
 
-		if prevB64 != "" {
-			if b64 == prevB64 {
-				elapsed := time.Since(start)
-				d.logger.InfoContext(ctx, "wait_for_stable: screen stable (identical screenshots)", "iterations", iter, "elapsed_ms", elapsed.Milliseconds())
-				return true, elapsed.Milliseconds(), nil
-			}
+		if iter > 1 && count == prevCount {
+			elapsed := time.Since(start)
+			d.logger.InfoContext(ctx, "wait_for_stable: DOM stable", "iterations", iter, "mutation_count", count, "elapsed_ms", elapsed.Milliseconds())
+			return true, elapsed.Milliseconds(), nil
 		}
-		prevB64 = b64
-
-		select {
-		case <-ctx.Done():
-			return false, time.Since(start).Milliseconds(), ctx.Err()
-		case <-time.After(pollInterval):
-		}
+		prevCount = count
 	}
 
 	elapsed := time.Since(start)

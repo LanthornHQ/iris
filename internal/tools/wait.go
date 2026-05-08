@@ -18,7 +18,7 @@ type WaitForStable struct {
 func (t *WaitForStable) Name() string { return "wait_for_stable" }
 
 func (t *WaitForStable) Description() string {
-	return `Poll the browser viewport until the page is stable (no visual changes) or timeout.
+	return `Poll the browser viewport until the page is stable (no DOM mutations) or timeout.
 
 Parameters:
   - timeout_ms (int, optional): Maximum time to wait in milliseconds. Default: 5000.
@@ -29,11 +29,11 @@ Returns: {stable: bool, elapsed_ms: int}
 
 Use this between actions to ensure page loads, animations, or transitions have settled.
 
-Algorithm: Takes consecutive screenshots at 200ms intervals. If two consecutive
-screenshots are identical, the page is considered stable.
+Algorithm: Installs a MutationObserver on the document and polls every 200ms.
+If two consecutive polls observe zero new mutations, the page is considered stable.
 
 Failure modes:
-  - Screenshot capture failure.
+  - MutationObserver setup failure.
   - Timeout (returns stable=false, not an error).`
 }
 

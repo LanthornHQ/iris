@@ -7,8 +7,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 
@@ -27,6 +29,7 @@ func main() {
 	}
 }
 
+//nolint:gocognit,funlen,mnd // Entrypoint run function contains parameter bootstrap and configuration limits
 func run() error {
 	if len(os.Args) > 1 {
 		for _, arg := range os.Args[1:] {
@@ -40,6 +43,7 @@ func run() error {
 	dotenvErr := godotenv.Load()
 
 	logLevel := slog.LevelDebug
+	var invalidLogLevelWarning string
 	if v := os.Getenv("IRIS_LOG_LEVEL"); v != "" {
 		switch strings.ToLower(v) {
 		case "debug":
@@ -50,6 +54,8 @@ func run() error {
 			logLevel = slog.LevelWarn
 		case "error":
 			logLevel = slog.LevelError
+		default:
+			invalidLogLevelWarning = v
 		}
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -59,6 +65,28 @@ func run() error {
 
 	if dotenvErr != nil {
 		logger.Warn("error loading .env file", "error", dotenvErr)
+	}
+
+	if invalidLogLevelWarning != "" {
+		logger.Warn("invalid IRIS_LOG_LEVEL, falling back to debug", "value", invalidLogLevelWarning)
+	}
+
+	toolTimeout := 30 * time.Second
+	if v := os.Getenv("IRIS_TOOL_TIMEOUT"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil {
+			switch {
+			case d < 1:
+				logger.Warn("IRIS_TOOL_TIMEOUT is too low; capping to 1 second", "value", d)
+				toolTimeout = 1 * time.Second
+			case d > 300:
+				logger.Warn("IRIS_TOOL_TIMEOUT is too high; capping to 300 seconds (5 minutes)", "value", d)
+				toolTimeout = 300 * time.Second
+			default:
+				toolTimeout = time.Duration(d) * time.Second
+			}
+		} else {
+			logger.Warn("invalid IRIS_TOOL_TIMEOUT; using default 30 seconds", "value", v)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -76,14 +104,17 @@ func run() error {
 		return errors.New("IRIS_API_KEY is set but empty; unset it to disable auth or provide a non-empty key")
 	}
 
-	browserCfg := browser.ConfigFromEnv()
+	browserCfg, err := browser.ConfigFromEnv()
+	if err != nil {
+		return fmt.Errorf("loading browser configuration: %w", err)
+	}
 	driver, err := browser.NewDriver(ctx, logger, browserCfg)
 	if err != nil {
 		return fmt.Errorf("failed to start browser: %w", err)
 	}
 	defer driver.Close()
 
-	server := mcp.NewServer(logger, version)
+	server := mcp.NewServer(logger, version, toolTimeout)
 	registry := tools.NewToolRegistry(logger, driver)
 	registry.RegisterAll(server)
 
@@ -95,7 +126,7 @@ func run() error {
 	logger.Info("iris configuration",
 		"version", version,
 		"addr", addr,
-		"tool_timeout", os.Getenv("IRIS_TOOL_TIMEOUT"),
+		"tool_timeout", toolTimeout,
 		"headless", browserCfg.Headless,
 		"window_size", fmt.Sprintf("%dx%d", browserCfg.Width, browserCfg.Height))
 

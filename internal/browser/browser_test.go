@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/chromedp/kb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -81,7 +82,8 @@ func (m *mockDriver) Close() error {
 }
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
-	cfg := ConfigFromEnv()
+	cfg, err := ConfigFromEnv()
+	require.NoError(t, err)
 	assert.True(t, cfg.Headless)
 	assert.Equal(t, 1920, cfg.Width)
 	assert.Equal(t, 1080, cfg.Height)
@@ -97,7 +99,8 @@ func TestConfigFromEnv_Custom(t *testing.T) {
 	t.Setenv("IRIS_NO_SANDBOX", "false")
 	t.Setenv("IRIS_STEALTH", "false")
 
-	cfg := ConfigFromEnv()
+	cfg, err := ConfigFromEnv()
+	require.NoError(t, err)
 	assert.False(t, cfg.Headless)
 	assert.Equal(t, "/usr/bin/chromium", cfg.ChromePath)
 	assert.False(t, cfg.NoSandbox)
@@ -108,7 +111,8 @@ func TestConfigFromEnv_Overrides(t *testing.T) {
 	t.Setenv("IRIS_HEADLESS", "0")
 	t.Setenv("IRIS_NO_SANDBOX", "0")
 
-	cfg := ConfigFromEnv()
+	cfg, err := ConfigFromEnv()
+	require.NoError(t, err)
 	assert.False(t, cfg.Headless)
 	assert.False(t, cfg.NoSandbox)
 }
@@ -238,11 +242,11 @@ func TestParseSpecialKeys(t *testing.T) {
 		},
 		{
 			input:    "{Up}{Down}{Left}{Right}",
-			expected: []keySegment{seg("\u0304"), seg("\u0301"), seg("\u0302"), seg("\u0303")},
+			expected: []keySegment{seg(kb.ArrowUp), seg(kb.ArrowDown), seg(kb.ArrowLeft), seg(kb.ArrowRight)},
 		},
 		{
 			input:    "{Home}{End}{PageUp}{PageDown}",
-			expected: []keySegment{seg("\u0306"), seg("\u0305"), seg("\u0308"), seg("\u0307")},
+			expected: []keySegment{seg(kb.Home), seg(kb.End), seg(kb.PageUp), seg(kb.PageDown)},
 		},
 		{
 			input:    "{unknown}x",

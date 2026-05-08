@@ -217,6 +217,53 @@ func TestClick_DriverError(t *testing.T) {
 	assert.Contains(t, err.Error(), "click failed")
 }
 
+func TestClick_Annotate(t *testing.T) {
+	// A tiny valid base64-encoded 100x100 JPEG to avoid decoding failures in drawClickDot
+	tinyJPEG := "/9j/2wCEAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDIBCQkJDAsMGA0NGDIhHCEyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMv/AABEIAGQAZAMBIgACEQEDEQH/xAGiAAABBQEBAQEBAQAAAAAAAAAAAQIDBAUGBwgJCgsQAAIBAwMCBAMFBQQEAAABfQECAwAEEQUSITFBBhNRYQcicRQygZGhCCNCscEVUtHwJDNicoIJChYXGBkaJSYnKCkqNDU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6g4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2drh4uPk5ebn6Onq8fLz9PX29/j5+gEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoLEQACAQIEBAMEBwUEBAABAncAAQIDEQQFITEGEkFRB2FxEyIygQgUQpGhscEJIzNS8BVictEKFiQ04SXxFxgZGiYnKCkqNTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqCg4SFhoeIiYqSk5SVlpeYmZqio6Slpqeoqaqys7S1tre4ubrCw8TFxsfIycrS09TV1tfY2dri4+Tl5ufo6ery8/T19vf4+fr/2gAMAwEAAhEDEQA/APf6KKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP//Z"
+
+	t.Run("default_false_without_param", func(t *testing.T) {
+		drv := &mockBrowserDriver{screenshotB64: tinyJPEG, screenshotW: 100, screenshotH: 100}
+		tool := &Click{Logger: testLogger, Driver: drv, AnnotateDefault: false}
+		result, err := tool.Execute(context.Background(), map[string]any{"x": float64(0), "y": float64(0)})
+		require.NoError(t, err)
+		resp := result.(ClickResponse)
+		// Should not be annotated (remains tinyJPEG)
+		assert.Equal(t, tinyJPEG, resp.ImageBase64)
+	})
+
+	t.Run("default_false_override_true", func(t *testing.T) {
+		drv := &mockBrowserDriver{screenshotB64: tinyJPEG, screenshotW: 100, screenshotH: 100}
+		tool := &Click{Logger: testLogger, Driver: drv, AnnotateDefault: false}
+		result, err := tool.Execute(context.Background(), map[string]any{"x": float64(50), "y": float64(50), "annotate": true})
+		require.NoError(t, err)
+		resp := result.(ClickResponse)
+		// Should be annotated (different from tinyJPEG)
+		assert.NotEqual(t, tinyJPEG, resp.ImageBase64)
+		assert.NotEmpty(t, resp.ImageBase64)
+	})
+
+	t.Run("default_true_without_param", func(t *testing.T) {
+		drv := &mockBrowserDriver{screenshotB64: tinyJPEG, screenshotW: 100, screenshotH: 100}
+		tool := &Click{Logger: testLogger, Driver: drv, AnnotateDefault: true}
+		result, err := tool.Execute(context.Background(), map[string]any{"x": float64(50), "y": float64(50)})
+		require.NoError(t, err)
+		resp := result.(ClickResponse)
+		// Should be annotated (different from tinyJPEG)
+		assert.NotEqual(t, tinyJPEG, resp.ImageBase64)
+		assert.NotEmpty(t, resp.ImageBase64)
+	})
+
+	t.Run("default_true_override_false", func(t *testing.T) {
+		drv := &mockBrowserDriver{screenshotB64: tinyJPEG, screenshotW: 100, screenshotH: 100}
+		tool := &Click{Logger: testLogger, Driver: drv, AnnotateDefault: true}
+		result, err := tool.Execute(context.Background(), map[string]any{"x": float64(50), "y": float64(50), "annotate": false})
+		require.NoError(t, err)
+		resp := result.(ClickResponse)
+		// Should not be annotated (remains tinyJPEG)
+		assert.Equal(t, tinyJPEG, resp.ImageBase64)
+	})
+}
+
 func TestScroll_Success(t *testing.T) {
 	drv := &mockBrowserDriver{waitStable: true, waitElapsedMs: 50}
 	tool := &Scroll{Logger: testLogger, Driver: drv}

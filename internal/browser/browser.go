@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 )
@@ -29,14 +30,15 @@ type CookieDef struct {
 }
 
 type Config struct {
-	Headless       bool
-	Width          int
-	Height         int
-	ChromePath     string
-	NoSandbox      bool
-	TimeoutMs      int
-	Stealth        bool
-	InitialCookies []CookieDef
+	Headless            bool
+	Width               int
+	Height              int
+	ChromePath          string
+	NoSandbox           bool
+	TimeoutMs           int
+	Stealth             bool
+	BypassGoogleConsent bool
+	InitialCookies      []CookieDef
 }
 
 const (
@@ -51,7 +53,7 @@ func envIsFalse(v string) bool {
 }
 
 // ConfigFromEnv reads browser configuration from IRIS_* environment variables.
-func ConfigFromEnv() Config {
+func ConfigFromEnv() (Config, error) {
 	cfg := Config{
 		Headless:  true,
 		Width:     defaultWidth,
@@ -72,13 +74,17 @@ func ConfigFromEnv() Config {
 	if envIsFalse(os.Getenv("IRIS_STEALTH")) {
 		cfg.Stealth = false
 	}
+	if os.Getenv("IRIS_BYPASS_GOOGLE_CONSENT") == "1" {
+		cfg.BypassGoogleConsent = true
+	}
 	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
 		var cookies []CookieDef
-		if err := json.Unmarshal([]byte(v), &cookies); err == nil {
-			cfg.InitialCookies = cookies
+		if err := json.Unmarshal([]byte(v), &cookies); err != nil {
+			return cfg, fmt.Errorf("parsing IRIS_INITIAL_COOKIES: %w", err)
 		}
+		cfg.InitialCookies = cookies
 	}
-	return cfg
+	return cfg, nil
 }
 
 // NewDriver starts a headless Chrome instance and returns a Driver.

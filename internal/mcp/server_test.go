@@ -6,10 +6,11 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestProcessRequestInitialize(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",
 		ID:      1,
@@ -30,7 +31,7 @@ func TestProcessRequestInitialize(t *testing.T) {
 }
 
 func TestProcessRequestPing(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",
 		ID:      2,
@@ -43,7 +44,7 @@ func TestProcessRequestPing(t *testing.T) {
 }
 
 func TestProcessRequestUnknownMethod(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",
 		ID:      3,
@@ -59,7 +60,7 @@ func TestProcessRequestUnknownMethod(t *testing.T) {
 }
 
 func TestProcessRequestToolsList(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",
 		ID:      4,
@@ -72,7 +73,7 @@ func TestProcessRequestToolsList(t *testing.T) {
 }
 
 func TestProcessRequestInvalidJSONRPC(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 
 	for _, version := range []string{"1.0", "", "3.0"} {
 		resp := s.processRequest(context.TODO(), &Request{
@@ -93,7 +94,7 @@ func TestProcessRequestInvalidJSONRPC(t *testing.T) {
 }
 
 func TestProcessRequestNotificationNoResponse(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 
 	for _, method := range []string{
 		"notifications/initialized",
@@ -114,7 +115,7 @@ func TestProcessRequestNotificationNoResponse(t *testing.T) {
 }
 
 func TestProcessRequestNotificationWithIDNil(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",
 		ID:      nil,
@@ -126,7 +127,7 @@ func TestProcessRequestNotificationWithIDNil(t *testing.T) {
 }
 
 func TestProcessRequestParamsWithNilArguments(t *testing.T) {
-	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test")
+	s := NewServer(slog.New(slog.NewJSONHandler(os.Stderr, nil)), "test", 30*time.Second)
 	params := json.RawMessage(`{"name":"test_tool"}`)
 	resp := s.processRequest(context.TODO(), &Request{
 		JSONRPC: "2.0",

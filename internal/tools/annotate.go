@@ -8,13 +8,14 @@ import (
 	"image/color"
 	"image/draw"
 	"image/jpeg"
+
+	"github.com/LanthornHQ/iris/internal/imageutil"
 )
 
 const (
 	clickDotRadius     = 12
 	ringBorderWidth    = 2
 	crossLengthPadding = 4
-	defaultJPEGQuality = 85
 )
 
 type dotInfo struct {
@@ -104,7 +105,7 @@ func drawDotsOnScreenshot(screenshotB64 string, imgW, imgH int, dots []dotInfo, 
 	}
 
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, rgba, &jpeg.Options{Quality: defaultJPEGQuality}); err != nil {
+	if err := jpeg.Encode(&buf, rgba, &jpeg.Options{Quality: imageutil.DefaultJPEGQuality}); err != nil {
 		return "", fmt.Errorf("jpeg encode: %w", err)
 	}
 

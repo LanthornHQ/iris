@@ -143,7 +143,7 @@ Double-click uses the same sequence with `ClickCount: 2` instead of repeating tw
 
 ## Click Annotation
 
-When `IRIS_ANNOTATE_CLICKS=1`, the `click` and `type_text` tools draw a semi-transparent red dot at the click coordinates on the post-click screenshot. This helps the agent visually verify where it clicked. The annotation is embedded in the base64 response image, not saved to disk.
+The `click` tool can draw a semi-transparent red dot at the click coordinates on the post-click screenshot. This helps the agent visually verify where it clicked. The annotation can be requested per-call via the click tool's `annotate` parameter, or enabled server-wide by setting `IRIS_ANNOTATE_CLICKS=1`. The annotation is embedded in the base64 response image, not saved to disk.
 
 ---
 

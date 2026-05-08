@@ -176,7 +176,7 @@ func (s *Server) RunHTTP(ctx context.Context, addr string) error {
 		defer cancel()
 		_ = hs.Shutdown(shutCtx)
 		<-errCh
-		return ctx.Err()
+		return nil
 	case err := <-errCh:
 		return err
 	}

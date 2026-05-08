@@ -8,7 +8,11 @@ import (
 	"github.com/LanthornHQ/iris/internal/browser"
 )
 
-const maxWaitTimeoutMs = 3_600_000
+const (
+	maxWaitTimeoutMs     = 3_600_000
+	defaultWaitTimeoutMs = 5000
+	defaultWaitThreshold = 0.01
+)
 
 type WaitForStable struct {
 	Logger *slog.Logger
@@ -44,16 +48,16 @@ func (t *WaitForStable) ParametersSchema() map[string]any {
 			"timeout_ms": map[string]any{
 				"type":        "integer",
 				"description": "Maximum wait time in milliseconds (default: 5000)",
-				"default":     5000,
+				"default":     defaultWaitTimeoutMs,
 			},
 		},
 	}
 }
 
 func (t *WaitForStable) Execute(ctx context.Context, args map[string]any) (any, error) {
-	timeoutMs := optIntArg(args, "timeout_ms", 5000)
+	timeoutMs := optIntArg(args, "timeout_ms", defaultWaitTimeoutMs)
 	if timeoutMs <= 0 {
-		timeoutMs = 5000
+		timeoutMs = defaultWaitTimeoutMs
 	}
 	if timeoutMs > maxWaitTimeoutMs {
 		return nil, fmt.Errorf("timeout_ms %d exceeds maximum of %d", timeoutMs, maxWaitTimeoutMs)
@@ -61,7 +65,7 @@ func (t *WaitForStable) Execute(ctx context.Context, args map[string]any) (any, 
 
 	t.Logger.InfoContext(ctx, "wait_for_stable starting", "timeout_ms", timeoutMs)
 
-	stable, elapsedMs, err := t.Driver.WaitForStable(ctx, timeoutMs, 0.01)
+	stable, elapsedMs, err := t.Driver.WaitForStable(ctx, timeoutMs, defaultWaitThreshold)
 	if err != nil {
 		return nil, fmt.Errorf("wait_for_stable: %w", err)
 	}

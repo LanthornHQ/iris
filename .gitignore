@@ -38,6 +38,7 @@ bin/
 dist/
 /iris
 build_context.sh
+project_context.txt
 
 # Test/dev artifacts
 test_output*.log

@@ -11,6 +11,12 @@ import (
 	"github.com/LanthornHQ/iris/internal/browser"
 )
 
+const (
+	defaultDelayMs     = 10
+	centerDivisor      = 2
+	focusWaitTimeoutMs = 150
+)
+
 type TypeText struct {
 	Logger    *slog.Logger
 	Driver    browser.Driver
@@ -58,7 +64,7 @@ func (t *TypeText) ParametersSchema() map[string]any {
 			"delay_ms": map[string]any{
 				"type":        "integer",
 				"description": "Delay between keystrokes in milliseconds (default: 10)",
-				"default":     10,
+				"default":     defaultDelayMs,
 			},
 		},
 		"required": []string{"text"},
@@ -72,7 +78,7 @@ func (t *TypeText) Execute(ctx context.Context, args map[string]any) (any, error
 		return nil, errors.New("text is required")
 	}
 	description, _ := args["description"].(string)
-	delayMs := optIntArg(args, "delay_ms", 10)
+	delayMs := optIntArg(args, "delay_ms", defaultDelayMs)
 	if delayMs < 0 {
 		delayMs = 0
 	}
@@ -98,8 +104,8 @@ func (t *TypeText) Execute(ctx context.Context, args map[string]any) (any, error
 			return nil, fmt.Errorf("type_text: grounding failed: %w", gErr)
 		}
 
-		cx := (bbox.X1 + bbox.X2) / 2
-		cy := (bbox.Y1 + bbox.Y2) / 2
+		cx := (bbox.X1 + bbox.X2) / centerDivisor
+		cy := (bbox.Y1 + bbox.Y2) / centerDivisor
 		bw := bbox.X2 - bbox.X1
 		bh := bbox.Y2 - bbox.Y1
 
@@ -117,7 +123,7 @@ func (t *TypeText) Execute(ctx context.Context, args map[string]any) (any, error
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(150 * time.Millisecond):
+		case <-time.After(focusWaitTimeoutMs * time.Millisecond):
 		}
 	}
 

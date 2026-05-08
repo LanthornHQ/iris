@@ -42,6 +42,13 @@ type BoundingBox struct {
 const (
 	TypeActionType  = "type"
 	TypeActionClick = "click"
+
+	maxLogResponseLen  = 1000
+	maxLogBodyLen      = 1000
+	maxErrBodyLen      = 500
+	maxErrRawLen       = 200
+	defaultJPEGQuality = 85
+	minRegexMatchLen   = 3
 )
 
 type Config struct {
@@ -276,7 +283,7 @@ func (c *Client) Verify(ctx context.Context, question string, img Image) (string
 		"question", question,
 		"elapsed_ms", elapsed.Milliseconds(),
 		"response_len", len(content),
-		"raw_response", truncate(content, 1000))
+		"raw_response", truncate(content, maxLogResponseLen))
 
 	ans, ev, b := parseVerifyResponse(content)
 
@@ -385,8 +392,8 @@ func (c *Client) doHTTPPost(ctx context.Context, modelName string, reqBody chatR
 	if resp.StatusCode != http.StatusOK {
 		c.Logger.ErrorContext(ctx, "grounding: non-200 response",
 			"status", resp.StatusCode,
-			"body", truncate(string(body), 1000))
-		return nil, fmt.Errorf("grounding: HTTP %d: %s", resp.StatusCode, truncate(string(body), 500))
+			"body", truncate(string(body), maxLogBodyLen))
+		return nil, fmt.Errorf("grounding: HTTP %d: %s", resp.StatusCode, truncate(string(body), maxErrBodyLen))
 	}
 
 	return body, nil
@@ -427,20 +434,20 @@ func (c *Client) callModel(ctx context.Context, modelName, systemPrompt, userPro
 	if err := json.Unmarshal(body, &chatResp); err != nil {
 		c.Logger.ErrorContext(ctx, "grounding: failed to decode response",
 			"error", err,
-			"raw_body", truncate(string(body), 1000))
-		return "", fmt.Errorf("grounding: decode response: %w (raw: %s)", err, truncate(string(body), 200))
+			"raw_body", truncate(string(body), maxLogBodyLen))
+		return "", fmt.Errorf("grounding: decode response: %w (raw: %s)", err, truncate(string(body), maxErrRawLen))
 	}
 
 	if chatResp.Error.String() != "" {
 		c.Logger.ErrorContext(ctx, "grounding: model returned error",
 			"error", chatResp.Error.String(),
-			"raw_body", truncate(string(body), 1000))
+			"raw_body", truncate(string(body), maxLogBodyLen))
 		return "", fmt.Errorf("grounding: model error: %s", chatResp.Error.String())
 	}
 
 	if len(chatResp.Choices) == 0 {
 		c.Logger.WarnContext(ctx, "grounding: no choices in response",
-			"raw_body", truncate(string(body), 1000))
+			"raw_body", truncate(string(body), maxLogBodyLen))
 		return "", errors.New("grounding: no choices in response")
 	}
 
@@ -489,13 +496,13 @@ func (c *Client) Ground(ctx context.Context, target string, intent string, img I
 		"target", target,
 		"elapsed_ms", elapsed.Milliseconds(),
 		"response_len", len(content),
-		"raw_response", truncate(content, 1000))
+		"raw_response", truncate(content, maxLogResponseLen))
 
 	nx, ny, pErr := parsePoint(content)
 	if pErr != nil {
 		c.Logger.ErrorContext(ctx, "grounding: failed to parse point from model response",
 			"target", target,
-			"raw_response", truncate(content, 500),
+			"raw_response", truncate(content, maxErrBodyLen),
 			"error", pErr)
 		return BoundingBox{}, pErr
 	}
@@ -571,7 +578,7 @@ func (c *Client) prepareImage(imageBase64 string) (string, int, int, error) {
 	resH := resized.Bounds().Dy()
 
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: 85}); err != nil {
+	if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: defaultJPEGQuality}); err != nil {
 		return "", 0, 0, fmt.Errorf("encode JPEG: %w", err)
 	}
 
@@ -601,20 +608,13 @@ func resizeImage(img image.Image, maxDim int) image.Image {
 		return img
 	}
 
-	scale := float64(maxDim) / float64(maxInt(w, h))
+	scale := float64(maxDim) / float64(max(w, h))
 	newW := int(float64(w) * scale)
 	newH := int(float64(h) * scale)
 
 	resized := image.NewRGBA(image.Rect(0, 0, newW, newH))
 	xdraw.CatmullRom.Scale(resized, resized.Bounds(), img, bounds, xdraw.Src, nil)
 	return resized
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func truncate(s string, maxLen int) string {
@@ -631,7 +631,7 @@ var pointPatterns = []*regexp.Regexp{
 
 func parsePoint(text string) (int, int, error) {
 	primary := pointPatterns[0].FindStringSubmatch(text)
-	if len(primary) >= 3 {
+	if len(primary) >= minRegexMatchLen {
 		x, errX := strconv.Atoi(primary[1])
 		y, errY := strconv.Atoi(primary[2])
 		if errX == nil && errY == nil {
@@ -640,12 +640,12 @@ func parsePoint(text string) (int, int, error) {
 	}
 
 	fallback := pointPatterns[1].FindStringSubmatch(text)
-	if len(fallback) >= 3 {
+	if len(fallback) >= minRegexMatchLen {
 		loc := pointPatterns[1].FindStringIndex(text)
 		if loc != nil {
 			after := text[loc[1]:]
 			if len(after) > 0 && after[0] == ',' {
-				return 0, 0, fmt.Errorf("grounding: response looks like a bbox, not a point: %s", truncate(text, 200))
+				return 0, 0, fmt.Errorf("grounding: response looks like a bbox, not a point: %s", truncate(text, maxErrRawLen))
 			}
 		}
 		x, errX := strconv.Atoi(fallback[1])
@@ -655,5 +655,5 @@ func parsePoint(text string) (int, int, error) {
 		}
 	}
 
-	return 0, 0, fmt.Errorf("grounding: could not parse point coordinates from response: %s", truncate(text, 200))
+	return 0, 0, fmt.Errorf("grounding: could not parse point coordinates from response: %s", truncate(text, maxErrRawLen))
 }

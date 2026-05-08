@@ -19,6 +19,12 @@ import (
 	"github.com/LanthornHQ/iris/internal/metrics"
 )
 
+const (
+	defaultToolTimeout       = 30 * time.Second
+	defaultReadHeaderTimeout = 5 * time.Second
+	defaultShutdownTimeout   = 5 * time.Second
+)
+
 // Tool is implemented by every browser-control action.
 type Tool interface {
 	Name() string
@@ -38,7 +44,7 @@ type Server struct {
 }
 
 func NewServer(logger *slog.Logger, version string) *Server {
-	toolTimeout := 30 * time.Second
+	toolTimeout := defaultToolTimeout
 	if v := os.Getenv("IRIS_TOOL_TIMEOUT"); v != "" {
 		if d, err := strconv.Atoi(v); err == nil && d > 0 {
 			toolTimeout = time.Duration(d) * time.Second
@@ -127,7 +133,7 @@ func (s *Server) RunHTTP(ctx context.Context, addr string) error {
 
 	hs := &http.Server{
 		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: defaultReadHeaderTimeout,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
@@ -159,7 +165,7 @@ func (s *Server) RunHTTP(ctx context.Context, addr string) error {
 
 	select {
 	case <-ctx.Done():
-		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 		defer cancel()
 		_ = hs.Shutdown(shutCtx)
 		<-errCh

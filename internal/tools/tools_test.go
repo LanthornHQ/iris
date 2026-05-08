@@ -13,35 +13,40 @@ import (
 )
 
 type mockBrowserDriver struct {
-	navigateCalled    int
-	clickCalled       int
-	doubleClickCalled int
-	typeCalled        int
-	scrollCalled      int
-	screenshotCalled  int
-	waitCalled        int
-	closeCalled       int
-	lastNavigateURL   string
-	lastClickX        int
-	lastClickY        int
-	lastDoubleClickX  int
-	lastDoubleClickY  int
-	lastTypeText      string
-	lastTypeDelay     int
-	lastScrollDir     string
-	lastScrollClicks  int
-	screenshotB64     string
-	screenshotW       int
-	screenshotH       int
-	screenshotErr     error
-	waitStable        bool
-	waitElapsedMs     int64
-	waitErr           error
-	navigateErr       error
-	clickErr          error
-	doubleClickErr    error
-	typeErr           error
-	scrollErr         error
+	navigateCalled         int
+	clickCalled            int
+	doubleClickCalled      int
+	typeCalled             int
+	scrollCalled           int
+	screenshotCalled       int
+	waitCalled             int
+	closeCalled            int
+	lastNavigateURL        string
+	lastClickX             int
+	lastClickY             int
+	lastDoubleClickX       int
+	lastDoubleClickY       int
+	lastTypeText           string
+	lastTypeDelay          int
+	lastScrollDir          string
+	lastScrollClicks       int
+	screenshotB64          string
+	screenshotW            int
+	screenshotH            int
+	screenshotErr          error
+	waitStable             bool
+	waitElapsedMs          int64
+	waitErr                error
+	navigateErr            error
+	clickErr               error
+	doubleClickErr         error
+	typeErr                error
+	scrollErr              error
+	drawMarksCalled        int
+	getElementCoordsCalled int
+	getElementCoordsX      int
+	getElementCoordsY      int
+	getElementCoordsErr    error
 }
 
 func (m *mockBrowserDriver) Navigate(_ context.Context, url string) error {
@@ -100,6 +105,19 @@ func (m *mockBrowserDriver) Close() error {
 	return nil
 }
 
+func (m *mockBrowserDriver) DrawMarks(_ context.Context) error {
+	m.drawMarksCalled++
+	return nil
+}
+
+func (m *mockBrowserDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {
+	m.getElementCoordsCalled++
+	if m.getElementCoordsErr != nil {
+		return 0, 0, m.getElementCoordsErr
+	}
+	return m.getElementCoordsX, m.getElementCoordsY, nil
+}
+
 var testLogger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
 func TestNavigate_RequiresURL(t *testing.T) {
@@ -151,6 +169,7 @@ func TestScreenshot_Success(t *testing.T) {
 	result, err := tool.Execute(context.Background(), map[string]any{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 1, drv.drawMarksCalled)
 
 	resp, ok := result.(ScreenshotResponse)
 	require.True(t, ok)
@@ -215,6 +234,38 @@ func TestClick_DriverError(t *testing.T) {
 	_, err := tool.Execute(context.Background(), map[string]any{"x": float64(100), "y": float64(200)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "click failed")
+}
+
+func TestClick_ElementID(t *testing.T) {
+	drv := &mockBrowserDriver{
+		getElementCoordsX: 120,
+		getElementCoordsY: 240,
+	}
+	tool := &Click{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{"element_id": float64(42)})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.getElementCoordsCalled)
+	assert.Equal(t, 1, drv.clickCalled)
+	assert.Equal(t, 120, drv.lastClickX)
+	assert.Equal(t, 240, drv.lastClickY)
+
+	resp, ok := result.(ClickResponse)
+	require.True(t, ok)
+	assert.True(t, resp.Success)
+}
+
+func TestClick_ElementIDError(t *testing.T) {
+	drv := &mockBrowserDriver{
+		getElementCoordsErr: assert.AnError,
+	}
+	tool := &Click{Logger: testLogger, Driver: drv}
+
+	_, err := tool.Execute(context.Background(), map[string]any{"element_id": float64(42)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "locating element 42")
+	assert.Equal(t, 1, drv.getElementCoordsCalled)
+	assert.Equal(t, 0, drv.clickCalled)
 }
 
 func TestClick_Annotate(t *testing.T) {

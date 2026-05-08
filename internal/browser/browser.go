@@ -19,6 +19,8 @@ type Driver interface {
 	Screenshot(ctx context.Context) (string, int, int, error)
 	WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
 	Title(ctx context.Context) (string, error)
+	DrawMarks(ctx context.Context) error
+	GetElementCoords(ctx context.Context, id int) (int, int, error)
 	Close() error
 }
 

@@ -496,6 +496,69 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 	return title, nil
 }
 
+func (d *chromedpDriver) DrawMarks(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.logger.InfoContext(ctx, "drawing Set-of-Mark badges")
+
+	const markJS = `(function() {
+		// Clean up old marks
+		document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+		let idCounter = 1;
+		
+		// Find all interactive elements
+		const elements = document.querySelectorAll('button, a, input, select, textarea, [role="button"]');
+		elements.forEach(el => {
+			const rect = el.getBoundingClientRect();
+			const style = window.getComputedStyle(el);
+			if (rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.opacity !== '0') {
+				el.setAttribute('data-iris-id', idCounter);
+				
+				// Draw the yellow badge
+				const mark = document.createElement('div');
+				mark.className = 'iris-som-mark';
+				mark.innerText = idCounter;
+				mark.style.cssText = 'position:fixed; top:'+Math.max(0, rect.top-10)+'px; left:'+Math.max(0, rect.left-10)+'px; background:yellow; color:black; font-weight:bold; font-size:14px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px;';
+				document.body.appendChild(mark);
+				idCounter++;
+			}
+		});
+	})()`
+
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(markJS, nil)); err != nil {
+		return fmt.Errorf("drawing marks: %w", err)
+	}
+	return nil
+}
+
+func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.logger.InfoContext(ctx, "getting element coordinates", "element_id", id)
+
+	getCoordsJS := fmt.Sprintf(`(function() {
+		const el = document.querySelector('[data-iris-id="%d"]');
+		if (!el) return null;
+		const rect = el.getBoundingClientRect();
+		// Return the mathematical center of the element
+		return {x: Math.round(rect.left + rect.width/2), y: Math.round(rect.top + rect.height/2)};
+	})()`, id)
+
+	var res map[string]float64
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(getCoordsJS, &res)); err != nil {
+		return 0, 0, fmt.Errorf("evaluating element coords: %w", err)
+	}
+	if res == nil {
+		return 0, 0, fmt.Errorf("element %d not found on screen", id)
+	}
+	return int(res["x"]), int(res["y"]), nil
+}
+
 func (d *chromedpDriver) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()

@@ -13,19 +13,21 @@ import (
 )
 
 type mockDriver struct {
-	navigateCalled   int
-	clickCalled      int
-	typeCalled       int
-	scrollCalled     int
-	screenshotFn     func(ctx context.Context) (string, int, int, error)
-	waitForStableFn  func(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
-	closeCalled      int
-	lastClickX       int
-	lastClickY       int
-	lastTypeText     string
-	lastScrollDir    string
-	lastScrollClicks int
-	lastNavigateURL  string
+	navigateCalled         int
+	clickCalled            int
+	typeCalled             int
+	scrollCalled           int
+	screenshotFn           func(ctx context.Context) (string, int, int, error)
+	waitForStableFn        func(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
+	closeCalled            int
+	lastClickX             int
+	lastClickY             int
+	lastTypeText           string
+	lastScrollDir          string
+	lastScrollClicks       int
+	lastNavigateURL        string
+	drawMarksCalled        int
+	getElementCoordsCalled int
 }
 
 func (m *mockDriver) Navigate(_ context.Context, url string) error {
@@ -79,6 +81,16 @@ func (m *mockDriver) WaitForStable(ctx context.Context, timeoutMs int, threshold
 func (m *mockDriver) Close() error {
 	m.closeCalled++
 	return nil
+}
+
+func (m *mockDriver) DrawMarks(_ context.Context) error {
+	m.drawMarksCalled++
+	return nil
+}
+
+func (m *mockDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {
+	m.getElementCoordsCalled++
+	return 0, 0, nil
 }
 
 func TestConfigFromEnv_Defaults(t *testing.T) {

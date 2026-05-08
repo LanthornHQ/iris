@@ -360,81 +360,6 @@ func TestTypeText_SimpleType(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
-func TestTypeText_WithDescriptionRequiresGrounding(t *testing.T) {
-	drv := &mockBrowserDriver{waitStable: true, waitElapsedMs: 50}
-	tool := &TypeText{Logger: testLogger, Driver: drv, Grounding: nil}
-
-	_, err := tool.Execute(context.Background(), map[string]any{"text": "hello", "description": "search box"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "grounding model not configured")
-}
-
-func TestTypeText_WithDescriptionSuccess(t *testing.T) {
-	gc := &mockGroundingClient{
-		groundBBox: BoundingBox{X1: 100, Y1: 200, X2: 300, Y2: 400},
-	}
-	drv := &mockBrowserDriver{waitStable: true, waitElapsedMs: 50, screenshotB64: "abc", screenshotW: 800, screenshotH: 600}
-	tool := &TypeText{Logger: testLogger, Driver: drv, Grounding: gc}
-
-	ctx := context.Background()
-	result, err := tool.Execute(ctx, map[string]any{"text": "test", "description": "search box"})
-	require.NoError(t, err)
-	assert.Equal(t, 1, gc.groundCalled)
-	assert.Equal(t, 1, drv.clickCalled)
-	assert.Equal(t, 1, drv.typeCalled)
-
-	resp, ok := result.(TypeTextResponse)
-	require.True(t, ok)
-	assert.True(t, resp.Success)
-	assert.Equal(t, 200, resp.X)
-	assert.Equal(t, 300, resp.Y)
-}
-
-func TestVerifyScreen_RequiresQuestion(t *testing.T) {
-	drv := &mockBrowserDriver{waitStable: true, waitElapsedMs: 50}
-	gc := &mockGroundingClient{}
-	tool := &VerifyScreen{Logger: testLogger, Driver: drv, Verifier: gc}
-
-	_, err := tool.Execute(context.Background(), map[string]any{})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "question is required")
-}
-
-func TestVerifyScreen_RequiresGrounding(t *testing.T) {
-	drv := &mockBrowserDriver{waitStable: true, waitElapsedMs: 50}
-	tool := &VerifyScreen{Logger: testLogger, Driver: drv, Verifier: nil}
-
-	_, err := tool.Execute(context.Background(), map[string]any{"question": "test?"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vision model not configured")
-}
-
-func TestVerifyScreen_ScreenshotError(t *testing.T) {
-	drv := &mockBrowserDriver{screenshotErr: assert.AnError}
-	gc := &mockGroundingClient{}
-	tool := &VerifyScreen{Logger: testLogger, Driver: drv, Verifier: gc}
-
-	_, err := tool.Execute(context.Background(), map[string]any{"question": "test?"})
-	require.Error(t, err)
-}
-
-func TestVerifyScreen_WithProvidedImage(t *testing.T) {
-	drv := &mockBrowserDriver{}
-	gc := &mockGroundingClient{verifyAnswer: "yes", verifyEvidence: "Button visible", verifyBBox: BoundingBox{X1: 10, Y1: 20, X2: 100, Y2: 50}}
-	tool := &VerifyScreen{Logger: testLogger, Driver: drv, Verifier: gc}
-
-	result, err := tool.Execute(context.Background(), map[string]any{"question": "Is there a button?", "image_base64": "pre-captured"})
-	require.NoError(t, err)
-	assert.Equal(t, 0, drv.screenshotCalled)
-	assert.Equal(t, 1, gc.verifyCalled)
-
-	resp, ok := result.(VerifyScreenResponse)
-	require.True(t, ok)
-	assert.Equal(t, "yes", resp.Answer)
-	assert.Equal(t, "Button visible", resp.Evidence)
-	assert.Equal(t, 10, resp.X1)
-}
-
 func TestIntArg(t *testing.T) {
 	_, err := intArg(map[string]any{}, "x")
 	require.Error(t, err)
@@ -455,29 +380,4 @@ func TestOptIntArg(t *testing.T) {
 
 func TestDriverInterface(_ *testing.T) {
 	var _ browser.Driver = &mockBrowserDriver{}
-}
-
-type mockGroundingClient struct {
-	groundCalled   int
-	verifyCalled   int
-	groundBBox     BoundingBox
-	groundErr      error
-	verifyAnswer   string
-	verifyEvidence string
-	verifyBBox     BoundingBox
-	verifyErr      error
-	lastTarget     string
-	lastIntent     string
-}
-
-func (m *mockGroundingClient) Ground(_ context.Context, target string, intent string, _ Image) (BoundingBox, error) {
-	m.groundCalled++
-	m.lastTarget = target
-	m.lastIntent = intent
-	return m.groundBBox, m.groundErr
-}
-
-func (m *mockGroundingClient) Verify(_ context.Context, _ string, _ Image) (string, string, BoundingBox, error) {
-	m.verifyCalled++
-	return m.verifyAnswer, m.verifyEvidence, m.verifyBBox, m.verifyErr
 }

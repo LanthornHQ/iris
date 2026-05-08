@@ -9,7 +9,6 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/sevigo/goframe v0.38.1
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/image v0.39.0
 )
 
 require (

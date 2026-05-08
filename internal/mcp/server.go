@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -22,6 +23,9 @@ import (
 const (
 	defaultToolTimeout       = 30 * time.Second
 	defaultReadHeaderTimeout = 5 * time.Second
+	defaultReadTimeout       = 60 * time.Second
+	defaultWriteTimeout      = 5 * time.Minute
+	defaultIdleTimeout       = 120 * time.Second
 	defaultShutdownTimeout   = 5 * time.Second
 )
 
@@ -134,6 +138,9 @@ func (s *Server) RunHTTP(ctx context.Context, addr string) error {
 	hs := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
+		IdleTimeout:       defaultIdleTimeout,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
@@ -196,12 +203,13 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) authenticate(r *http.Request) bool {
+	key := []byte(s.apiKey)
 	if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-		if strings.TrimPrefix(auth, "Bearer ") == s.apiKey {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth, "Bearer ")), key) == 1 {
 			return true
 		}
 	}
-	if r.Header.Get("X-Api-Key") == s.apiKey {
+	if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Api-Key")), key) == 1 {
 		return true
 	}
 	return false

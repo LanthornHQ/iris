@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/chromedp/cdproto/input"
@@ -15,12 +16,11 @@ import (
 )
 
 const (
-	defaultJPEGQuality    = 85
-	defaultPollInterval   = 200 * time.Millisecond
-	defaultTimeout        = 30 * time.Second
-	doubleClickCount      = 2
-	scrollDeltaPerClick   = 300
-	fullScreenshotQuality = 100
+	defaultJPEGQuality  = 85
+	defaultPollInterval = 200 * time.Millisecond
+	defaultTimeout      = 30 * time.Second
+	doubleClickCount    = 2
+	scrollDeltaPerClick = 300
 )
 
 type chromedpDriver struct {
@@ -30,8 +30,12 @@ type chromedpDriver struct {
 	timeout    time.Duration
 }
 
-const stealthJS = `
-(function() {
+var stealthHWOptions = []int{4, 8, 16}
+
+// buildStealthJS generates stealth override JS with randomized hardware fingerprint values
+// to avoid sessions sharing an identical browser signature.
+func buildStealthJS(hwConcurrency, deviceMemory int) string {
+	return fmt.Sprintf(`(function() {
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
 	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
 	Object.defineProperty(navigator, 'plugins', {get: () => {
@@ -42,8 +46,8 @@ const stealthJS = `
 		Object.setPrototypeOf(arr, PluginArray.prototype);
 		return arr;
 	}});
-	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
-	Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => %d});
+	Object.defineProperty(navigator, 'deviceMemory', {get: () => %d});
 	window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){} };
 	const originalQuery = window.navigator.permissions.query;
 	window.navigator.permissions.query = (parameters) => (
@@ -53,19 +57,16 @@ const stealthJS = `
 	);
 	const getParameter = WebGLRenderingContext.prototype.getParameter;
 	WebGLRenderingContext.prototype.getParameter = function(parameter) {
-		// UNMASKED_VENDOR_WEBGL (37445) and UNMASKED_RENDERER_WEBGL (37446)
-		// Returns realistic but generic values; does not match UA string OS.
 		if (parameter === 37445) return 'Google Inc. (NVIDIA)';
 		if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
 		return getParameter.call(this, parameter);
 	};
-	// Prevent iframe contentWindow detection of webdriver
 	const origAttachShadow = Element.prototype.attachShadow;
 	Element.prototype.attachShadow = function() {
 		return origAttachShadow.apply(this, arguments);
 	};
-})();
-`
+})();`, hwConcurrency, deviceMemory)
+}
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 	if cfg.Stealth {
@@ -88,7 +89,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 			chromedp.Flag("disable-crash-reporter", true),
 			chromedp.Flag("password-store", "basic"),
 			chromedp.Flag("disable-blink-features", "AutomationControlled"),
-			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
 		}
 		if cfg.Headless {
 			opts = append(opts, chromedp.Flag("headless", "new"))
@@ -118,7 +119,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
 		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"),
 	)
 	return opts
 }
@@ -132,7 +133,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, allocatorOpts...)
 
-	browserCtx, browserCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(func(s string, i ...interface{}) {
+	browserCtx, browserCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(func(s string, i ...any) {
 		logger.Debug("chromedp", "msg", fmt.Sprintf(s, i...))
 	}))
 
@@ -158,6 +159,9 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 	var initActions []chromedp.Action
 
 	if cfg.Stealth {
+		hwConcurrency := stealthHWOptions[rand.IntN(len(stealthHWOptions))] //nolint:gosec // non-security randomisation of browser fingerprint values
+		deviceMemory := stealthHWOptions[rand.IntN(len(stealthHWOptions))]  //nolint:gosec // non-security randomisation of browser fingerprint values
+		stealthJS := buildStealthJS(hwConcurrency, deviceMemory)
 		initActions = append(initActions,
 			chromedp.ActionFunc(func(ctx context.Context) error {
 				_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
@@ -323,10 +327,12 @@ func (d *chromedpDriver) WaitForStable(ctx context.Context, timeoutMs int, thres
 		}
 		prevCount = count
 
+		pollTimer := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
+			pollTimer.Stop()
 			return false, time.Since(start).Milliseconds(), ctx.Err()
-		case <-time.After(pollInterval):
+		case <-pollTimer.C:
 		}
 	}
 
@@ -354,17 +360,7 @@ func (d *chromedpDriver) Close() error {
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	actionCtx, cancel := context.WithTimeout(d.browserCtx, d.timeout)
-	if ctx.Done() != nil {
-		go func() {
-			select {
-			case <-ctx.Done():
-				cancel()
-			case <-actionCtx.Done():
-			}
-		}()
-	}
-	return actionCtx, cancel
+	return context.WithTimeout(ctx, d.timeout)
 }
 
 func mouseMove(x, y int) chromedp.Action {

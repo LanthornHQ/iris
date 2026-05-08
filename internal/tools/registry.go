@@ -19,15 +19,14 @@ func NewToolRegistry(logger *slog.Logger, driver browser.Driver) *ToolRegistry {
 	}
 }
 
-// RegisterAll registers all 9 browser-control tools on the MCP server.
+// RegisterAll registers all browser-control tools on the MCP server.
 func (r *ToolRegistry) RegisterAll(s *mcp.Server) {
 	s.RegisterTool(&Navigate{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Screenshot{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Click{Logger: r.Logger, Driver: r.Driver})
-	s.RegisterTool(&TypeText{Logger: r.Logger, Driver: r.Driver, Grounding: nil})
+	s.RegisterTool(&TypeText{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Scroll{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&WaitForStable{Logger: r.Logger, Driver: r.Driver})
-	s.RegisterTool(&VerifyScreen{Logger: r.Logger, Driver: r.Driver, Verifier: nil})
 	s.RegisterTool(&Sleep{Logger: r.Logger})
 	s.RegisterTool(&GetDatetime{Logger: r.Logger})
 }

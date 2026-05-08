@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 )
@@ -41,6 +42,8 @@ func (t *Sleep) ParametersSchema() map[string]any {
 	}
 }
 
+const maxSleepMs = 60_000
+
 func (t *Sleep) Execute(ctx context.Context, args map[string]any) (any, error) {
 	durationMs, err := intArg(args, "duration_ms")
 	if err != nil {
@@ -48,6 +51,9 @@ func (t *Sleep) Execute(ctx context.Context, args map[string]any) (any, error) {
 	}
 	if durationMs < 0 {
 		return nil, errors.New("duration_ms must be non-negative")
+	}
+	if durationMs > maxSleepMs {
+		return nil, fmt.Errorf("duration_ms %d exceeds maximum of %d", durationMs, maxSleepMs)
 	}
 
 	t.Logger.InfoContext(ctx, "sleep starting", "duration_ms", durationMs)

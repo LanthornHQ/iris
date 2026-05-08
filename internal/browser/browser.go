@@ -30,6 +30,7 @@ type CookieDef struct {
 
 type Config struct {
 	Headless       bool
+	Xvfb           bool
 	Width          int
 	Height         int
 	ChromePath     string
@@ -50,6 +51,10 @@ func envIsFalse(v string) bool {
 	return v == envFalse || v == "0"
 }
 
+func envIsTrue(v string) bool {
+	return v == "true" || v == "1"
+}
+
 // ConfigFromEnv reads browser configuration from IRIS_* environment variables.
 func ConfigFromEnv() Config {
 	cfg := Config{
@@ -62,6 +67,12 @@ func ConfigFromEnv() Config {
 	}
 	if envIsFalse(os.Getenv("IRIS_HEADLESS")) {
 		cfg.Headless = false
+	}
+	// IRIS_XVFB=true starts a Xvfb virtual framebuffer and runs Chrome
+	// non-headless against it — better bot evasion at the cost of ~100 MB RAM.
+	if envIsTrue(os.Getenv("IRIS_XVFB")) {
+		cfg.Xvfb = true
+		cfg.Headless = false // Xvfb is only useful in non-headless mode
 	}
 	if v := os.Getenv("IRIS_CHROME_PATH"); v != "" {
 		cfg.ChromePath = v

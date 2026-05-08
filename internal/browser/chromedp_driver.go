@@ -9,7 +9,6 @@ import (
 	"image/jpeg"
 	"log/slog"
 	"math/rand/v2"
-	"os"
 	"strings"
 	"time"
 
@@ -32,7 +31,6 @@ type chromedpDriver struct {
 	cancel     context.CancelFunc
 	logger     *slog.Logger
 	timeout    time.Duration
-	xvfb       *xvfbProcess
 }
 
 var stealthHWOptions = []int{4, 8, 16}
@@ -181,23 +179,7 @@ func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 }
 
 func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
-	var xvfb *xvfbProcess
-	if cfg.Xvfb {
-		var err error
-		xvfb, err = startXvfb(cfg.Width, cfg.Height)
-		if err != nil {
-			return nil, fmt.Errorf("start Xvfb: %w", err)
-		}
-		logger.InfoContext(ctx, "Xvfb started", "display", xvfb.display)
-	}
-
 	allocatorOpts := buildAllocatorOpts(cfg)
-
-	if xvfb != nil {
-		allocatorOpts = append(allocatorOpts, chromedp.Env("DISPLAY="+xvfb.display))
-	} else if d := os.Getenv("DISPLAY"); d != "" && !cfg.Headless {
-		allocatorOpts = append(allocatorOpts, chromedp.Env("DISPLAY="+d))
-	}
 
 	if cfg.ChromePath != "" {
 		allocatorOpts = append(allocatorOpts, chromedp.ExecPath(cfg.ChromePath))
@@ -219,12 +201,10 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		cancel:     func() { browserCancel(); allocCancel() },
 		logger:     logger,
 		timeout:    timeout,
-		xvfb:       xvfb,
 	}
 
 	logger.InfoContext(ctx, "starting Chrome",
 		"headless", cfg.Headless,
-		"xvfb", cfg.Xvfb,
 		"stealth", cfg.Stealth,
 		"window_size", fmt.Sprintf("%dx%d", cfg.Width, cfg.Height),
 		"no_sandbox", cfg.NoSandbox,
@@ -519,7 +499,6 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 func (d *chromedpDriver) Close() error {
 	d.logger.Info("closing browser")
 	d.cancel()
-	d.xvfb.stop()
 	return nil
 }
 

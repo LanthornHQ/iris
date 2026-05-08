@@ -43,6 +43,10 @@ func (t *Screenshot) Execute(ctx context.Context, _ map[string]any) (any, error)
 	t.Logger.InfoContext(ctx, "screenshot starting")
 	start := time.Now()
 
+	if err := t.Driver.DrawMarks(ctx); err != nil {
+		t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
+	}
+
 	b64, w, h, err := t.Driver.Screenshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("screenshot failed: %w", err)

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -18,11 +19,12 @@ type Click struct {
 func (t *Click) Name() string { return "click" }
 
 func (t *Click) Description() string {
-	return `Click at specific viewport coordinates in the browser.
+	return `Click at specific viewport coordinates or a Set-of-Mark (SoM) element ID in the browser.
 
 Parameters:
-  - x (int, required): X coordinate in viewport pixels.
-  - y (int, required): Y coordinate in viewport pixels.
+  - x (int, optional): X coordinate in viewport pixels. Required if element_id is not specified.
+  - y (int, optional): Y coordinate in viewport pixels. Required if element_id is not specified.
+  - element_id (int, optional): The ID of the Set-of-Mark (SoM) badge on the element to click. If specified, x and y are ignored.
   - button (string, optional): Mouse button. One of "left" (default), "right", "middle".
     Use "double" for a double-click.
   - annotate (boolean, optional): If true, a red dot marks the click position on the returned screenshot.
@@ -34,10 +36,11 @@ Returns: {success: bool, image_base64: string, width: int, height: int}
   - width/height: dimensions of the screenshot.
 
 Coordinate system: Viewport pixels. (0,0) is the top-left corner of the page.
-The agent should get coordinates from a prior screenshot + grounding call.
+The agent should get coordinates from a prior screenshot + grounding call, or use the Set-of-Mark element_id.
 
 Failure modes:
   - Coordinates out of viewport bounds.
+  - Specified element_id not found on screen.
   - Browser not responding.`
 }
 
@@ -47,11 +50,15 @@ func (t *Click) ParametersSchema() map[string]any {
 		"properties": map[string]any{
 			"x": map[string]any{
 				"type":        "number",
-				"description": "X coordinate in viewport pixels",
+				"description": "X coordinate in viewport pixels. Required if element_id is not specified.",
 			},
 			"y": map[string]any{
 				"type":        "number",
-				"description": "Y coordinate in viewport pixels",
+				"description": "Y coordinate in viewport pixels. Required if element_id is not specified.",
+			},
+			"element_id": map[string]any{
+				"type":        "integer",
+				"description": "Optional Set-of-Mark (SoM) badge ID to click instead of explicit coordinates",
 			},
 			"button": map[string]any{
 				"type":        "string",
@@ -64,19 +71,40 @@ func (t *Click) ParametersSchema() map[string]any {
 				"description": "If true, draw a red dot at the click coordinates on the returned screenshot",
 			},
 		},
-		"required": []string{"x", "y"},
 	}
 }
 
-func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
+func (t *Click) resolveCoordinates(ctx context.Context, args map[string]any) (int, int, error) {
+	if _, ok := args["element_id"]; ok {
+		elementID := optIntArg(args, "element_id", 0)
+		if elementID <= 0 {
+			return 0, 0, errors.New("element_id must be a positive integer")
+		}
+		x, y, err := t.Driver.GetElementCoords(ctx, elementID)
+		if err != nil {
+			return 0, 0, fmt.Errorf("locating element %d: %w", elementID, err)
+		}
+		t.Logger.InfoContext(ctx, "resolved element_id to coordinates", "element_id", elementID, "x", x, "y", y)
+		return x, y, nil
+	}
+
 	x, err := intArg(args, "x")
 	if err != nil {
-		return nil, err
+		return 0, 0, err
 	}
 	y, err := intArg(args, "y")
 	if err != nil {
+		return 0, 0, err
+	}
+	return x, y, nil
+}
+
+func (t *Click) Execute(ctx context.Context, args map[string]any) (any, error) {
+	x, y, err := t.resolveCoordinates(ctx, args)
+	if err != nil {
 		return nil, err
 	}
+
 	button, _ := args["button"].(string)
 	if button == "" {
 		button = "left"

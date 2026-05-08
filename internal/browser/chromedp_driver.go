@@ -22,9 +22,77 @@ type chromedpDriver struct {
 	timeout    time.Duration
 }
 
-func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", cfg.Headless),
+const stealthJS = `
+(function() {
+	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+	Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+	Object.defineProperty(navigator, 'plugins', {get: () => {
+		var arr = [1, 2, 3, 4, 5];
+		arr.item = function(i) { return this[i]; };
+		arr.namedItem = function(name) { return null; };
+		arr.refresh = function() {};
+		Object.setPrototypeOf(arr, PluginArray.prototype);
+		return arr;
+	}});
+	Object.defineProperty(navigator, 'hardwareConcurrency', {get: () => 8});
+	Object.defineProperty(navigator, 'deviceMemory', {get: () => 8});
+	window.chrome = {runtime: {}, loadTimes: function(){}, csi: function(){} };
+	const originalQuery = window.navigator.permissions.query;
+	window.navigator.permissions.query = (parameters) => (
+		parameters.name === 'notifications' ?
+			Promise.resolve({state: (typeof Notification !== 'undefined' ? Notification.permission : 'default')}) :
+			originalQuery(parameters)
+	);
+	const getParameter = WebGLRenderingContext.prototype.getParameter;
+	WebGLRenderingContext.prototype.getParameter = function(parameter) {
+		// UNMASKED_VENDOR_WEBGL (37445) and UNMASKED_RENDERER_WEBGL (37446)
+		// Returns realistic but generic values; does not match UA string OS.
+		if (parameter === 37445) return 'Google Inc. (NVIDIA)';
+		if (parameter === 37446) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, OpenGL 4.5)';
+		return getParameter.call(this, parameter);
+	};
+	// Prevent iframe contentWindow detection of webdriver
+	const origAttachShadow = Element.prototype.attachShadow;
+	Element.prototype.attachShadow = function() {
+		return origAttachShadow.apply(this, arguments);
+	};
+})();
+`
+
+func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
+	if cfg.Stealth {
+		opts := []chromedp.ExecAllocatorOption{
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-sandbox", cfg.NoSandbox),
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.WindowSize(cfg.Width, cfg.Height),
+			chromedp.Flag("hide-scrollbars", true),
+			chromedp.Flag("mute-audio", true),
+			chromedp.Flag("no-first-run", true),
+			chromedp.Flag("no-default-browser-check", true),
+			chromedp.Flag("disable-notifications", true),
+			chromedp.Flag("disable-backgrounding-occluded-windows", true),
+			chromedp.Flag("disable-background-timer-throttling", true),
+			chromedp.Flag("disable-renderer-backgrounding", true),
+			chromedp.Flag("disable-background-networking", true),
+			chromedp.Flag("disable-component-update", true),
+			chromedp.Flag("disable-domain-reliability", true),
+			chromedp.Flag("disable-crash-reporter", true),
+			chromedp.Flag("password-store", "basic"),
+			chromedp.Flag("disable-blink-features", "AutomationControlled"),
+			chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		}
+		if cfg.Headless {
+			opts = append(opts, chromedp.Flag("headless", "new"))
+		}
+		return opts
+	}
+
+	opts := chromedp.DefaultExecAllocatorOptions[:]
+	if cfg.Headless {
+		opts = append(opts, chromedp.Headless)
+	}
+	opts = append(opts,
 		chromedp.Flag("no-sandbox", cfg.NoSandbox),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
@@ -42,14 +110,19 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
 		chromedp.Flag("password-store", "basic"),
-		chromedp.Flag("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 	)
+	return opts
+}
+
+func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
+	allocatorOpts := buildAllocatorOpts(cfg)
 
 	if cfg.ChromePath != "" {
-		opts = append(opts, chromedp.ExecPath(cfg.ChromePath))
+		allocatorOpts = append(allocatorOpts, chromedp.ExecPath(cfg.ChromePath))
 	}
 
-	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, opts...)
+	allocCtx, allocCancel := chromedp.NewExecAllocator(ctx, allocatorOpts...)
 
 	browserCtx, browserCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(func(s string, i ...interface{}) {
 		logger.Debug("chromedp", "msg", fmt.Sprintf(s, i...))
@@ -67,19 +140,27 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		timeout:    timeout,
 	}
 
-	logger.InfoContext(ctx, "starting headless Chrome",
+	logger.InfoContext(ctx, "starting Chrome",
 		"headless", cfg.Headless,
+		"stealth", cfg.Stealth,
 		"window_size", fmt.Sprintf("%dx%d", cfg.Width, cfg.Height),
 		"no_sandbox", cfg.NoSandbox,
 		"timeout", timeout)
 
-	if err := chromedp.Run(browserCtx,
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			_, err := page.AddScriptToEvaluateOnNewDocument(`Object.defineProperty(navigator, 'webdriver', {get: () => undefined})`).Do(ctx)
-			return err
-		}),
-		chromedp.Navigate("about:blank"),
-	); err != nil {
+	var initActions []chromedp.Action
+
+	if cfg.Stealth {
+		initActions = append(initActions,
+			chromedp.ActionFunc(func(ctx context.Context) error {
+				_, err := page.AddScriptToEvaluateOnNewDocument(stealthJS).Do(ctx)
+				return err
+			}),
+		)
+	}
+
+	initActions = append(initActions, chromedp.Navigate("about:blank"))
+
+	if err := chromedp.Run(browserCtx, initActions...); err != nil {
 		browserCancel()
 		allocCancel()
 		return nil, fmt.Errorf("failed to start Chrome: %w", err)

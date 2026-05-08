@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/input"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 )
 
@@ -41,6 +42,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		chromedp.Flag("disable-domain-reliability", true),
 		chromedp.Flag("disable-crash-reporter", true),
 		chromedp.Flag("password-store", "basic"),
+		chromedp.Flag("user-agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
 	)
 
 	if cfg.ChromePath != "" {
@@ -72,6 +74,10 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		"timeout", timeout)
 
 	if err := chromedp.Run(browserCtx,
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, err := page.AddScriptToEvaluateOnNewDocument(`Object.defineProperty(navigator, 'webdriver', {get: () => undefined})`).Do(ctx)
+			return err
+		}),
 		chromedp.Navigate("about:blank"),
 	); err != nil {
 		browserCancel()

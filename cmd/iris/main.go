@@ -12,7 +12,6 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/LanthornHQ/iris/internal/browser"
-	"github.com/LanthornHQ/iris/internal/grounding"
 	"github.com/LanthornHQ/iris/internal/mcp"
 	"github.com/LanthornHQ/iris/internal/tools"
 )
@@ -70,19 +69,8 @@ func run() error {
 	}
 	defer driver.Close()
 
-	var groundingClient *grounding.Client
-	groundingCfg := grounding.ConfigFromEnv()
-	if groundingCfg.BaseURL != "" {
-		groundingClient = grounding.NewClient(groundingCfg, logger)
-		logger.Info("grounding model configured",
-			"grounding_url", groundingCfg.BaseURL,
-			"grounding_model", groundingCfg.ModelName)
-	} else {
-		logger.Warn("grounding model not configured; set IRIS_GROUNDING_URL to enable vision-grounded tools")
-	}
-
 	server := mcp.NewServer(logger, version)
-	registry := tools.NewToolRegistry(logger, driver, groundingClient)
+	registry := tools.NewToolRegistry(logger, driver)
 	registry.RegisterAll(server)
 
 	addr := os.Getenv("IRIS_ADDR")

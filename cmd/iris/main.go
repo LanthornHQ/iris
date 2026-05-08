@@ -29,7 +29,7 @@ func main() {
 	}
 }
 
-//nolint:gocognit,funlen,mnd // Entrypoint run function contains parameter bootstrap and configuration limits
+//nolint:gocognit,funlen // Entrypoint run function contains parameter bootstrap and configuration limits
 func run() error {
 	if len(os.Args) > 1 {
 		for _, arg := range os.Args[1:] {
@@ -71,16 +71,22 @@ func run() error {
 		logger.Warn("invalid IRIS_LOG_LEVEL, falling back to debug", "value", invalidLogLevelWarning)
 	}
 
-	toolTimeout := 30 * time.Second
+	const (
+		defaultToolTimeoutSec = 30
+		minToolTimeoutSec     = 1
+		maxToolTimeoutSec     = 300
+	)
+
+	toolTimeout := defaultToolTimeoutSec * time.Second
 	if v := os.Getenv("IRIS_TOOL_TIMEOUT"); v != "" {
 		if d, err := strconv.Atoi(v); err == nil {
 			switch {
-			case d < 1:
+			case d < minToolTimeoutSec:
 				logger.Warn("IRIS_TOOL_TIMEOUT is too low; capping to 1 second", "value", d)
-				toolTimeout = 1 * time.Second
-			case d > 300:
+				toolTimeout = minToolTimeoutSec * time.Second
+			case d > maxToolTimeoutSec:
 				logger.Warn("IRIS_TOOL_TIMEOUT is too high; capping to 300 seconds (5 minutes)", "value", d)
-				toolTimeout = 300 * time.Second
+				toolTimeout = maxToolTimeoutSec * time.Second
 			default:
 				toolTimeout = time.Duration(d) * time.Second
 			}

@@ -85,8 +85,8 @@ func TestConfigFromEnv_Defaults(t *testing.T) {
 	cfg, err := ConfigFromEnv()
 	require.NoError(t, err)
 	assert.True(t, cfg.Headless)
-	assert.Equal(t, 1920, cfg.Width)
-	assert.Equal(t, 1080, cfg.Height)
+	assert.Equal(t, 1280, cfg.Width)
+	assert.Equal(t, 720, cfg.Height)
 	assert.True(t, cfg.NoSandbox)
 	assert.Equal(t, 30000, cfg.TimeoutMs)
 	assert.Empty(t, cfg.ChromePath)
@@ -110,11 +110,15 @@ func TestConfigFromEnv_Custom(t *testing.T) {
 func TestConfigFromEnv_Overrides(t *testing.T) {
 	t.Setenv("IRIS_HEADLESS", "0")
 	t.Setenv("IRIS_NO_SANDBOX", "0")
+	t.Setenv("IRIS_WINDOW_WIDTH", "1024")
+	t.Setenv("IRIS_WINDOW_HEIGHT", "768")
 
 	cfg, err := ConfigFromEnv()
 	require.NoError(t, err)
 	assert.False(t, cfg.Headless)
 	assert.False(t, cfg.NoSandbox)
+	assert.Equal(t, 1024, cfg.Width)
+	assert.Equal(t, 768, cfg.Height)
 }
 
 func TestNewDriver_Interface(_ *testing.T) {

@@ -85,7 +85,7 @@ Stealth mode (default: on) helps bypass bot detection (Cloudflare, etc.):
 - Table-driven tests for parameterized cases.
 - Use `t.Setenv()` for env var tests, `httptest.NewServer` for HTTP tests.
 - Silenced logger in tests: see `internal/tools/tools_test.go` (`testLogger` variable).
-- Mock `browser.Driver` and `tools.GroundingClient`/`tools.VerifyClient` for tool unit tests — see `internal/tools/tools_test.go` and `internal/browser/browser_test.go`.
+- Mock `browser.Driver` for tool unit tests — see `internal/tools/tools_test.go` and `internal/browser/browser_test.go`.
 
 ## Linter Notes
 

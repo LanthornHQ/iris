@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 )
 
 // Driver controls a headless browser for coordinate-based interaction.
@@ -43,8 +44,8 @@ type Config struct {
 
 const (
 	envFalse         = "false"
-	defaultWidth     = 1920
-	defaultHeight    = 1080
+	defaultWidth     = 1280
+	defaultHeight    = 720
 	defaultTimeoutMs = 30000
 )
 
@@ -76,6 +77,16 @@ func ConfigFromEnv() (Config, error) {
 	}
 	if os.Getenv("IRIS_BYPASS_GOOGLE_CONSENT") == "1" {
 		cfg.BypassGoogleConsent = true
+	}
+	if v := os.Getenv("IRIS_WINDOW_WIDTH"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 {
+			cfg.Width = val
+		}
+	}
+	if v := os.Getenv("IRIS_WINDOW_HEIGHT"); v != "" {
+		if val, err := strconv.Atoi(v); err == nil && val > 0 {
+			cfg.Height = val
+		}
 	}
 	if v := os.Getenv("IRIS_INITIAL_COOKIES"); v != "" {
 		var cookies []CookieDef

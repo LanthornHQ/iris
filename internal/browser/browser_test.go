@@ -90,6 +90,8 @@ func (m *mockDriver) DrawMarks(_ context.Context) ([]SomElement, error) {
 			ID:   1,
 			Tag:  "button",
 			Text: "Click Me",
+			Role: "button",
+			Type: "submit",
 			Bounds: SomBounds{
 				X:      10,
 				Y:      20,

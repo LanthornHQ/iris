@@ -24,6 +24,7 @@ type SomElement struct {
 	Text      string    `json:"text"`
 	AriaLabel string    `json:"aria_label,omitempty"`
 	Role      string    `json:"role,omitempty"`
+	Type      string    `json:"type,omitempty"`
 	Bounds    SomBounds `json:"bounds"`
 }
 

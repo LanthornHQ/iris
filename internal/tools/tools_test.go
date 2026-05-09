@@ -116,6 +116,8 @@ func (m *mockBrowserDriver) DrawMarks(_ context.Context) ([]browser.SomElement, 
 			ID:   1,
 			Tag:  "button",
 			Text: "Click Me",
+			Role: "button",
+			Type: "submit",
 			Bounds: browser.SomBounds{
 				X:      10,
 				Y:      20,
@@ -197,6 +199,8 @@ func TestScreenshot_Success(t *testing.T) {
 	assert.Equal(t, 1, resp.Elements[0].ID)
 	assert.Equal(t, "button", resp.Elements[0].Tag)
 	assert.Equal(t, "Click Me", resp.Elements[0].Text)
+	assert.Equal(t, "button", resp.Elements[0].Role)
+	assert.Equal(t, "submit", resp.Elements[0].Type)
 }
 
 func TestScreenshot_WithoutSoM(t *testing.T) {

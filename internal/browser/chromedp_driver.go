@@ -618,7 +618,8 @@ const somMarkJS = `(function() {
 
 			const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 200);
 			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
-			const role = el.getAttribute('role') || '';
+			const role = el.getAttribute('role') || el.tagName.toLowerCase();
+			const typeAttr = el.getAttribute('type') || '';
 
 			elementsList.push({
 				id: idCounter,
@@ -626,6 +627,7 @@ const somMarkJS = `(function() {
 				text: text,
 				aria_label: ariaLabel,
 				role: role,
+				type: typeAttr,
 				bounds: {
 					x: Math.round(left),
 					y: Math.round(top),

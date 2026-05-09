@@ -19,20 +19,16 @@ func (t *Screenshot) Name() string { return "screenshot" }
 func (t *Screenshot) Description() string {
 	return `Capture a screenshot of the current browser viewport.
 
-Parameters:
-  - som (boolean, optional): If true (default), dynamically overlays Set-of-Mark (SoM) 
-    badges on all interactive elements before capturing the screenshot. If false, 
-    captures a raw, unannotated screenshot of the page.
+Behavioral Guidance & Set-of-Mark (SoM):
+- Set-of-Mark (SoM) is an advanced visual grounding mechanism. When active (som=true), it overlays high-visibility yellow badges with black numbers over all interactive elements on the page.
+- Calling agents can subsequently use these ID numbers directly in interaction tools (such as click with element_id) to bypass raw coordinate estimation entirely.
+- SoM badges are dynamic and temporary: they are wiped and redrawn fresh on each screenshot call to reflect the latest interactive elements without accumulating visual noise as the DOM mutates.
+- Use som=false to obtain a raw, unannotated screenshot of the webpage when you need a pristine view or are performing pure visual inspection.
+- The returned 'som_applied' boolean field indicates whether badges were successfully drawn. If false, the model should fall back to raw coordinate-based interaction.
 
-Returns: {image_base64: string, width: int, height: int}
-  - image_base64 (string): JPEG image encoded as base64 (~85% quality).
-  - width (int): Width of the captured image in pixels.
-  - height (int): Height of the captured image in pixels.
-
-The screenshot represents exactly what the browser renders — no OS desktop capture, no window management.
-
-Failure modes:
-  - Browser not running or page not loaded.`
+Coordinate System & Scaling:
+- The coordinate system is based on standard CSS viewport pixels. (0,0) is the top-left corner of the page.
+- Image coordinates map 1:1 to CSS pixels (not device-dependent Retina physical pixels), meaning that interaction coordinates predicted directly from the screenshot scale correctly across different display setups.`
 }
 
 func (t *Screenshot) ParametersSchema() map[string]any {
@@ -41,9 +37,11 @@ func (t *Screenshot) ParametersSchema() map[string]any {
 		"properties": map[string]any{
 			"som": map[string]any{
 				"type":        "boolean",
-				"description": "If true (default), draw Set-of-Mark (SoM) badges on the webpage before capture",
+				"description": "If true, draw Set-of-Mark (SoM) badges on the webpage before capture.",
+				"default":     true,
 			},
 		},
+		"required": []string{},
 	}
 }
 
@@ -51,15 +49,23 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 	t.Logger.InfoContext(ctx, "screenshot starting")
 	start := time.Now()
 
-	som := true
-	if val, ok := args["som"].(bool); ok {
-		som = val
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screenshot aborted: %w", err)
 	}
+
+	som := optBoolArg(args, "som", true)
+	somApplied := false
 
 	if som {
 		if err := t.Driver.DrawMarks(ctx); err != nil {
 			t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
+		} else {
+			somApplied = true
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
 	}
 
 	b64, w, h, err := t.Driver.Screenshot(ctx)
@@ -74,5 +80,6 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		ImageBase64: b64,
 		Width:       w,
 		Height:      h,
+		SoMApplied:  somApplied,
 	}, nil
 }

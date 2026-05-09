@@ -4,6 +4,7 @@ type ScreenshotResponse struct {
 	ImageBase64 string `json:"image_base64"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
+	SoMApplied  bool   `json:"som_applied"`
 }
 
 type ClickResponse struct {

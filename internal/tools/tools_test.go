@@ -176,6 +176,7 @@ func TestScreenshot_Success(t *testing.T) {
 	assert.Equal(t, "abc", resp.ImageBase64)
 	assert.Equal(t, 100, resp.Width)
 	assert.Equal(t, 200, resp.Height)
+	assert.True(t, resp.SoMApplied)
 }
 
 func TestScreenshot_WithoutSoM(t *testing.T) {
@@ -190,6 +191,7 @@ func TestScreenshot_WithoutSoM(t *testing.T) {
 	resp, ok := result.(ScreenshotResponse)
 	require.True(t, ok)
 	assert.Equal(t, "abc", resp.ImageBase64)
+	assert.False(t, resp.SoMApplied)
 }
 
 func TestScreenshot_WithSoMExplicit(t *testing.T) {
@@ -204,6 +206,7 @@ func TestScreenshot_WithSoMExplicit(t *testing.T) {
 	resp, ok := result.(ScreenshotResponse)
 	require.True(t, ok)
 	assert.Equal(t, "abc", resp.ImageBase64)
+	assert.True(t, resp.SoMApplied)
 }
 
 func TestScreenshot_DriverError(t *testing.T) {

@@ -178,6 +178,34 @@ func TestScreenshot_Success(t *testing.T) {
 	assert.Equal(t, 200, resp.Height)
 }
 
+func TestScreenshot_WithoutSoM(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{"som": false})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 0, drv.drawMarksCalled)
+
+	resp, ok := result.(ScreenshotResponse)
+	require.True(t, ok)
+	assert.Equal(t, "abc", resp.ImageBase64)
+}
+
+func TestScreenshot_WithSoMExplicit(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{"som": true})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 1, drv.drawMarksCalled)
+
+	resp, ok := result.(ScreenshotResponse)
+	require.True(t, ok)
+	assert.Equal(t, "abc", resp.ImageBase64)
+}
+
 func TestScreenshot_DriverError(t *testing.T) {
 	drv := &mockBrowserDriver{screenshotErr: assert.AnError}
 	tool := &Screenshot{Logger: testLogger, Driver: drv}

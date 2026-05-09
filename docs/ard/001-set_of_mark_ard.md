@@ -2,7 +2,7 @@
 
 ## Metadata
 * **Status**: Implemented / Approved
-* **Author**: Antigravity (AI Architect)
+* **Author**: Igor Komlew
 * **Date**: May 9, 2026
 * **Component**: `Iris` (MCP Browser Execution Server)
 * **Target Audience**: AI Agents, Multi-Modal Vision-Language Models (e.g., Gemma 2 26B), Human Developers
@@ -12,7 +12,7 @@
 ## 1. Executive Summary & Context
 
 Automated web browser agents using coordinate-based mouse input traditionally rely on multi-modal vision-language models (VLMs) to analyze raw screenshots and predict precise pixel coordinates `(x, y)` of target interactive elements. This approach exposes severe limitations:
-* **Spatial Disorientation**: Smaller or locally run models (such as Gemma 2 26B) are excellent at textual reasoning but struggle with raw coordinate prediction (spatial grounding), leading to misses, click drifts, and automation fragility.
+* **Spatial Disorientation**: Smaller or locally run models are excellent at textual reasoning but struggle with raw coordinate prediction (spatial grounding), leading to misses, click drifts, and automation fragility.
 * **Semantic Deficit**: A raw screenshot lacks explicit indicators of which elements are interactive, forcing models to guess click boundaries.
 
 **Set-of-Mark (SoM)** addresses these problems by dynamically injecting visible, uniquely numbered badges (marks) over all interactive elements on the webpage right before a screenshot is taken. 

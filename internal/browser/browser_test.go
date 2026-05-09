@@ -83,9 +83,21 @@ func (m *mockDriver) Close() error {
 	return nil
 }
 
-func (m *mockDriver) DrawMarks(_ context.Context) error {
+func (m *mockDriver) DrawMarks(_ context.Context) ([]SomElement, error) {
 	m.drawMarksCalled++
-	return nil
+	return []SomElement{
+		{
+			ID:   1,
+			Tag:  "button",
+			Text: "Click Me",
+			Bounds: SomBounds{
+				X:      10,
+				Y:      20,
+				Width:  100,
+				Height: 30,
+			},
+		},
+	}, nil
 }
 
 func (m *mockDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {

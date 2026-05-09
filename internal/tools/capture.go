@@ -53,13 +53,24 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("screenshot aborted: %w", err)
 	}
 
-	som := optBoolArg(args, "som", true)
+	som := true
+	explicitSom := false
+	if val, ok := args["som"].(bool); ok {
+		som = val
+		explicitSom = true
+	}
+
+	var somElems []browser.SomElement
 	somApplied := false
 
 	if som {
-		if err := t.Driver.DrawMarks(ctx); err != nil {
+		if res, err := t.Driver.DrawMarks(ctx); err != nil {
+			if explicitSom {
+				return nil, fmt.Errorf("som requested but failed to draw marks: %w", err)
+			}
 			t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
 		} else {
+			somElems = res
 			somApplied = true
 		}
 	}
@@ -81,5 +92,6 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		Width:       w,
 		Height:      h,
 		SoMApplied:  somApplied,
+		Elements:    somElems,
 	}, nil
 }

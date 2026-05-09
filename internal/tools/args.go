@@ -26,11 +26,3 @@ func optIntArg(args map[string]any, name string, defaultVal int) int {
 	}
 	return int(v)
 }
-
-func optBoolArg(args map[string]any, name string, defaultVal bool) bool {
-	v, ok := args[name].(bool)
-	if !ok {
-		return defaultVal
-	}
-	return v
-}

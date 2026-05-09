@@ -9,6 +9,24 @@ import (
 	"strconv"
 )
 
+// SomBounds represents the bounding box of a Set-of-Mark element in viewport pixels.
+type SomBounds struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
+}
+
+// SomElement carries structured textual and spatial metadata for a Set-of-Mark element.
+type SomElement struct {
+	ID        int       `json:"id"`
+	Tag       string    `json:"tag"`
+	Text      string    `json:"text"`
+	AriaLabel string    `json:"aria_label,omitempty"`
+	Role      string    `json:"role,omitempty"`
+	Bounds    SomBounds `json:"bounds"`
+}
+
 // Driver controls a headless browser for coordinate-based interaction.
 type Driver interface {
 	Navigate(ctx context.Context, url string) error
@@ -19,7 +37,7 @@ type Driver interface {
 	Screenshot(ctx context.Context) (string, int, int, error)
 	WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
 	Title(ctx context.Context) (string, error)
-	DrawMarks(ctx context.Context) error
+	DrawMarks(ctx context.Context) ([]SomElement, error)
 	GetElementCoords(ctx context.Context, id int) (int, int, error)
 	Close() error
 }

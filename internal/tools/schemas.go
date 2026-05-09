@@ -1,9 +1,13 @@
 package tools
 
+import "github.com/LanthornHQ/iris/internal/browser"
+
 type ScreenshotResponse struct {
-	ImageBase64 string `json:"image_base64"`
-	Width       int    `json:"width"`
-	Height      int    `json:"height"`
+	ImageBase64 string               `json:"image_base64"`
+	Width       int                  `json:"width"`
+	Height      int                  `json:"height"`
+	SoMApplied  bool                 `json:"som_applied"`
+	Elements    []browser.SomElement `json:"elements,omitempty"`
 }
 
 type ClickResponse struct {

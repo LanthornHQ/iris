@@ -19,32 +19,64 @@ func (t *Screenshot) Name() string { return "screenshot" }
 func (t *Screenshot) Description() string {
 	return `Capture a screenshot of the current browser viewport.
 
-Parameters: (none)
+Behavioral Guidance & Set-of-Mark (SoM):
+- Set-of-Mark (SoM) is an advanced visual grounding mechanism. When active (som=true), it overlays high-visibility yellow badges with black numbers over all interactive elements on the page.
+- Calling agents can subsequently use these ID numbers directly in interaction tools (such as click with element_id) to bypass raw coordinate estimation entirely.
+- SoM badges are dynamic and temporary: they are wiped and redrawn fresh on each screenshot call to reflect the latest interactive elements without accumulating visual noise as the DOM mutates.
+- Use som=false to obtain a raw, unannotated screenshot of the webpage when you need a pristine view or are performing pure visual inspection.
+- The returned 'som_applied' boolean field indicates whether badges were successfully drawn. If false, the model should fall back to raw coordinate-based interaction.
 
-Returns: {image_base64: string, width: int, height: int}
-  - image_base64 (string): JPEG image encoded as base64 (~85% quality).
-  - width (int): Width of the captured image in pixels.
-  - height (int): Height of the captured image in pixels.
-
-The screenshot represents exactly what the browser renders — no OS desktop capture, no window management.
-
-Failure modes:
-  - Browser not running or page not loaded.`
+Coordinate System & Scaling:
+- The coordinate system is based on standard CSS viewport pixels. (0,0) is the top-left corner of the page.
+- Image coordinates map 1:1 to CSS pixels (not device-dependent Retina physical pixels), meaning that interaction coordinates predicted directly from the screenshot scale correctly across different display setups.`
 }
 
 func (t *Screenshot) ParametersSchema() map[string]any {
 	return map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
+		"type": "object",
+		"properties": map[string]any{
+			"som": map[string]any{
+				"type":        "boolean",
+				"description": "If true (default), draw Set-of-Mark (SoM) badges and return element metadata.",
+				"default":     true,
+			},
+		},
+		"required": []string{},
 	}
 }
 
-func (t *Screenshot) Execute(ctx context.Context, _ map[string]any) (any, error) {
+func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, error) {
 	t.Logger.InfoContext(ctx, "screenshot starting")
 	start := time.Now()
 
-	if err := t.Driver.DrawMarks(ctx); err != nil {
-		t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screenshot aborted: %w", err)
+	}
+
+	som := true
+	explicitSom := false
+	if val, ok := args["som"].(bool); ok {
+		som = val
+		explicitSom = true
+	}
+
+	var somElems []browser.SomElement
+	somApplied := false
+
+	if som {
+		if res, err := t.Driver.DrawMarks(ctx); err != nil {
+			if explicitSom {
+				return nil, fmt.Errorf("som requested but failed to draw marks: %w", err)
+			}
+			t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
+		} else {
+			somElems = res
+			somApplied = true
+		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
 	}
 
 	b64, w, h, err := t.Driver.Screenshot(ctx)
@@ -59,5 +91,7 @@ func (t *Screenshot) Execute(ctx context.Context, _ map[string]any) (any, error)
 		ImageBase64: b64,
 		Width:       w,
 		Height:      h,
+		SoMApplied:  somApplied,
+		Elements:    somElems,
 	}, nil
 }

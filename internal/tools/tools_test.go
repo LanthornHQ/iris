@@ -43,6 +43,7 @@ type mockBrowserDriver struct {
 	typeErr                error
 	scrollErr              error
 	drawMarksCalled        int
+	drawMarksErr           error
 	getElementCoordsCalled int
 	getElementCoordsX      int
 	getElementCoordsY      int
@@ -105,9 +106,24 @@ func (m *mockBrowserDriver) Close() error {
 	return nil
 }
 
-func (m *mockBrowserDriver) DrawMarks(_ context.Context) error {
+func (m *mockBrowserDriver) DrawMarks(_ context.Context) ([]browser.SomElement, error) {
 	m.drawMarksCalled++
-	return nil
+	if m.drawMarksErr != nil {
+		return nil, m.drawMarksErr
+	}
+	return []browser.SomElement{
+		{
+			ID:   1,
+			Tag:  "button",
+			Text: "Click Me",
+			Bounds: browser.SomBounds{
+				X:      10,
+				Y:      20,
+				Width:  100,
+				Height: 30,
+			},
+		},
+	}, nil
 }
 
 func (m *mockBrowserDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {
@@ -176,6 +192,68 @@ func TestScreenshot_Success(t *testing.T) {
 	assert.Equal(t, "abc", resp.ImageBase64)
 	assert.Equal(t, 100, resp.Width)
 	assert.Equal(t, 200, resp.Height)
+	assert.True(t, resp.SoMApplied)
+	require.Len(t, resp.Elements, 1)
+	assert.Equal(t, 1, resp.Elements[0].ID)
+	assert.Equal(t, "button", resp.Elements[0].Tag)
+	assert.Equal(t, "Click Me", resp.Elements[0].Text)
+}
+
+func TestScreenshot_WithoutSoM(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{"som": false})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 0, drv.drawMarksCalled)
+
+	resp, ok := result.(ScreenshotResponse)
+	require.True(t, ok)
+	assert.Equal(t, "abc", resp.ImageBase64)
+	assert.False(t, resp.SoMApplied)
+	assert.Empty(t, resp.Elements)
+}
+
+func TestScreenshot_WithSoMExplicit(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{"som": true})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 1, drv.drawMarksCalled)
+
+	resp, ok := result.(ScreenshotResponse)
+	require.True(t, ok)
+	assert.Equal(t, "abc", resp.ImageBase64)
+	assert.True(t, resp.SoMApplied)
+	require.Len(t, resp.Elements, 1)
+}
+
+func TestScreenshot_DefaultSoMFails_GracefulDegradation(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200, drawMarksErr: assert.AnError}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	result, err := tool.Execute(context.Background(), map[string]any{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, drv.screenshotCalled)
+	assert.Equal(t, 1, drv.drawMarksCalled)
+
+	resp, ok := result.(ScreenshotResponse)
+	require.True(t, ok)
+	assert.Equal(t, "abc", resp.ImageBase64)
+	assert.False(t, resp.SoMApplied)
+	assert.Empty(t, resp.Elements)
+}
+
+func TestScreenshot_ExplicitSoMFails_HardError(t *testing.T) {
+	drv := &mockBrowserDriver{screenshotB64: "abc", screenshotW: 100, screenshotH: 200, drawMarksErr: assert.AnError}
+	tool := &Screenshot{Logger: testLogger, Driver: drv}
+
+	_, err := tool.Execute(context.Background(), map[string]any{"som": true})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "som requested but failed to draw marks")
 }
 
 func TestScreenshot_DriverError(t *testing.T) {

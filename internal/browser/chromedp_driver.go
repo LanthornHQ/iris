@@ -496,50 +496,130 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 	return title, nil
 }
 
-func (d *chromedpDriver) DrawMarks(ctx context.Context) error {
+const somMarkJS = `(function() {
+	// Clean up existing badges
+	document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+	let idCounter = 1;
+	const elementsList = [];
+
+	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
+		let doc;
+		try {
+			doc = win.document;
+			if (!doc) return;
+		} catch (e) {
+			// Ignore cross-origin frames due to standard browser sandboxing
+			return;
+		}
+
+		// Select standard interactives, custom controls, tabs, menuitems, switch, checkbox, and editable divs
+		const candidates = doc.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"]), *');
+		const marked = new Set();
+
+		candidates.forEach(el => {
+			if (marked.has(el)) return;
+
+			const rect = el.getBoundingClientRect();
+			const style = win.getComputedStyle(el);
+
+			const isStandard = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
+			const role = el.getAttribute('role') || '';
+			const isRoleInteractive = ['button', 'link', 'tab', 'menuitem', 'switch', 'checkbox'].includes(role.toLowerCase());
+			const isTabindex = el.getAttribute('tabindex') !== null && el.getAttribute('tabindex') !== '-1';
+			const hasPointer = style.cursor === 'pointer';
+			const isContentEditable = el.getAttribute('contenteditable') === 'true';
+
+			if (!(isStandard || isRoleInteractive || isTabindex || hasPointer || isContentEditable)) {
+				return;
+			}
+
+			const isVisible = rect.width > 0 && rect.height > 0 && 
+			                  style.visibility !== 'hidden' && 
+			                  style.opacity !== '0' && 
+			                  style.display !== 'none';
+
+			if (!isVisible) return;
+
+			const top = rect.top + iframeOffsetTop;
+			const left = rect.left + iframeOffsetLeft;
+			const bottom = rect.bottom + iframeOffsetTop;
+			const right = rect.right + iframeOffsetLeft;
+
+			const inViewport = top < window.innerHeight && bottom > 0 && 
+			                   left < window.innerWidth && right > 0;
+
+			if (!inViewport) return;
+
+			el.setAttribute('data-iris-id', idCounter);
+			marked.add(el);
+
+			const text = (el.innerText || el.value || '').trim().substring(0, 200);
+			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+
+			elementsList.push({
+				id: idCounter,
+				tag: el.tagName.toLowerCase(),
+				text: text,
+				aria_label: ariaLabel,
+				role: role,
+				bounds: {
+					x: Math.round(left),
+					y: Math.round(top),
+					width: Math.round(rect.width),
+					height: Math.round(rect.height)
+				}
+			});
+
+			// Prevent badge from covering tiny icons by shifting it more top-left
+			const isSmall = rect.width < 32 || rect.height < 32;
+			const offset = isSmall ? 15 : 10;
+
+			const badgeTop = Math.max(0, top - offset);
+			const badgeLeft = Math.max(0, left - offset);
+
+			const mark = window.top.document.createElement('div');
+			mark.className = 'iris-som-mark';
+			mark.innerText = idCounter;
+			mark.style.cssText = 'position:fixed; top:'+badgeTop+'px; left:'+badgeLeft+'px; background:yellow; color:black; font-weight:bold; font-size:13px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); line-height: 1.1;';
+			window.top.document.body.appendChild(mark);
+			idCounter++;
+		});
+
+		// Scan frame structure for accessible sub-windows recursively
+		try {
+			const iframes = doc.querySelectorAll('iframe');
+			iframes.forEach(iframe => {
+				const iframeRect = iframe.getBoundingClientRect();
+				const iframeStyle = win.getComputedStyle(iframe);
+				const iframeVisible = iframeRect.width > 0 && iframeRect.height > 0 && 
+				                      iframeStyle.visibility !== 'hidden' && 
+				                      iframeStyle.display !== 'none';
+
+				if (iframeVisible) {
+					processWindow(iframe.contentWindow, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
+				}
+			});
+		} catch (e) {
+			// Inaccessible frames are skipped
+		}
+	}
+
+	processWindow(window, 0, 0);
+	return elementsList;
+})()`
+
+func (d *chromedpDriver) DrawMarks(ctx context.Context) ([]SomElement, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "drawing Set-of-Mark badges")
 
-	const markJS = `(function() {
-		// Clean up old marks
-		document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
-		let idCounter = 1;
-		
-		// Find all interactive elements
-		const elements = document.querySelectorAll('button, a, input, select, textarea, [role="button"]');
-		elements.forEach(el => {
-			const rect = el.getBoundingClientRect();
-			const style = window.getComputedStyle(el);
-			
-			// Check if element is currently visible in the viewport
-			const inViewport = rect.top < window.innerHeight && rect.bottom > 0 && 
-			                   rect.left < window.innerWidth && rect.right > 0;
-			                   
-			if (inViewport && rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.opacity !== '0') {
-				el.setAttribute('data-iris-id', idCounter);
-				
-				// Draw the yellow badge
-				const mark = document.createElement('div');
-				mark.className = 'iris-som-mark';
-				mark.innerText = idCounter;
-				
-				const markTop = Math.max(0, rect.top - 10);
-				const markLeft = Math.max(0, rect.left - 10);
-				
-				mark.style.cssText = 'position:fixed; top:'+markTop+'px; left:'+markLeft+'px; background:yellow; color:black; font-weight:bold; font-size:14px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px;';
-				document.body.appendChild(mark);
-				idCounter++;
-			}
-		});
-	})()`
-
+	var res []SomElement
 	actionCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
-	if err := chromedp.Run(actionCtx, chromedp.Evaluate(markJS, nil)); err != nil {
-		return fmt.Errorf("drawing marks: %w", err)
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(somMarkJS, &res)); err != nil {
+		return nil, fmt.Errorf("drawing marks: %w", err)
 	}
-	return nil
+	return res, nil
 }
 
 func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int, error) {
@@ -548,11 +628,40 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 	d.logger.InfoContext(ctx, "getting element coordinates", "element_id", id)
 
 	getCoordsJS := fmt.Sprintf(`(function() {
-		const el = document.querySelector('[data-iris-id="%d"]');
-		if (!el) return null;
-		const rect = el.getBoundingClientRect();
-		// Return the mathematical center of the element
-		return {x: Math.round(rect.left + rect.width/2), y: Math.round(rect.top + rect.height/2)};
+		function findElement(win, iframeOffsetTop, iframeOffsetLeft) {
+			let doc;
+			try {
+				doc = win.document;
+				if (!doc) return null;
+			} catch (e) {
+				return null;
+			}
+
+			const el = doc.querySelector('[data-iris-id="%d"]');
+			if (el) {
+				const rect = el.getBoundingClientRect();
+				return {
+					x: Math.round(rect.left + rect.width/2) + iframeOffsetLeft,
+					y: Math.round(rect.top + rect.height/2) + iframeOffsetTop
+				};
+			}
+
+			try {
+				const iframes = doc.querySelectorAll('iframe');
+				for (let i = 0; i < iframes.length; i++) {
+					const iframe = iframes[i];
+					const iframeRect = iframe.getBoundingClientRect();
+					const res = findElement(iframe.contentWindow, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
+					if (res) return res;
+				}
+			} catch (e) {
+				// Ignore inaccessible frames
+			}
+
+			return null;
+		}
+
+		return findElement(window, 0, 0);
 	})()`, id)
 
 	var res map[string]float64

@@ -37,7 +37,7 @@ func (t *Screenshot) ParametersSchema() map[string]any {
 		"properties": map[string]any{
 			"som": map[string]any{
 				"type":        "boolean",
-				"description": "If true, draw Set-of-Mark (SoM) badges on the webpage before capture.",
+				"description": "If true (default), draw Set-of-Mark (SoM) badges and return element metadata.",
 				"default":     true,
 			},
 		},

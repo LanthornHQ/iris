@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -497,41 +498,104 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 }
 
 const somMarkJS = `(function() {
-	// Clean up existing badges
-	document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
-	let idCounter = 1;
-	const elementsList = [];
-
-	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
+	function cleanWindow(win) {
 		let doc;
 		try {
 			doc = win.document;
 			if (!doc) return;
 		} catch (e) {
-			// Ignore cross-origin frames due to standard browser sandboxing
+			return;
+		}
+		doc.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+		
+		function cleanSubtree(root) {
+			root.querySelectorAll('[data-iris-id]').forEach(el => el.removeAttribute('data-iris-id'));
+			root.querySelectorAll('*').forEach(el => {
+				if (el.shadowRoot) {
+					cleanSubtree(el.shadowRoot);
+				}
+			});
+		}
+		cleanSubtree(doc);
+
+		try {
+			const iframes = doc.querySelectorAll('iframe');
+			iframes.forEach(iframe => {
+				try {
+					if (iframe.contentWindow) {
+						cleanWindow(iframe.contentWindow);
+					}
+				} catch (e) {}
+			});
+		} catch (e) {}
+	}
+	cleanWindow(window);
+
+	try {
+		window.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+	} catch (e) {}
+
+	let idCounter = 1;
+	const elementsList = [];
+	const placedBadges = [];
+
+	function deepQuery(root, selector) {
+		const results = Array.from(root.querySelectorAll(selector));
+		root.querySelectorAll('*').forEach(el => {
+			if (el.shadowRoot) {
+				results.push(...deepQuery(el.shadowRoot, selector));
+			}
+		});
+		return results;
+	}
+
+	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
+		if (idCounter > 200) return;
+
+		let doc;
+		try {
+			doc = win.document;
+			if (!doc) return;
+		} catch (e) {
 			return;
 		}
 
-		// Select standard interactives, custom controls, tabs, menuitems, switch, checkbox, and editable divs
-		const candidates = doc.querySelectorAll('button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"]), *');
+		// 1. Pass 1: Standard interactive query
+		const standardSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+		const standard = deepQuery(doc, standardSelector);
+
+		const candidates = [];
 		const marked = new Set();
-
-		candidates.forEach(el => {
-			if (marked.has(el)) return;
-
-			const rect = el.getBoundingClientRect();
-			const style = win.getComputedStyle(el);
-
-			const isStandard = ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA'].includes(el.tagName);
-			const role = el.getAttribute('role') || '';
-			const isRoleInteractive = ['button', 'link', 'tab', 'menuitem', 'switch', 'checkbox'].includes(role.toLowerCase());
-			const isTabindex = el.getAttribute('tabindex') !== null && el.getAttribute('tabindex') !== '-1';
-			const hasPointer = style.cursor === 'pointer';
-			const isContentEditable = el.getAttribute('contenteditable') === 'true';
-
-			if (!(isStandard || isRoleInteractive || isTabindex || hasPointer || isContentEditable)) {
-				return;
+		standard.forEach(el => {
+			if (!marked.has(el)) {
+				marked.add(el);
+				candidates.push({el: el, isStandardInteractive: true});
 			}
+		});
+
+		// 2. Pass 2: Custom pointer candidates from common clickable tags only to avoid layout thrashing
+		if (candidates.length < 200) {
+			const pointerSelector = 'div, span, li, svg, img';
+			const pointerCandidates = deepQuery(doc, pointerSelector);
+			pointerCandidates.forEach(el => {
+				if (!marked.has(el)) {
+					try {
+						const style = win.getComputedStyle(el);
+						if (style && style.cursor === 'pointer') {
+							marked.add(el);
+							candidates.push({el: el, isStandardInteractive: false, style: style});
+						}
+					} catch (e) {}
+				}
+			});
+		}
+
+		candidates.forEach(cand => {
+			if (idCounter > 200) return;
+
+			const el = cand.el;
+			const rect = el.getBoundingClientRect();
+			const style = cand.style || win.getComputedStyle(el);
 
 			const isVisible = rect.width > 0 && rect.height > 0 && 
 			                  style.visibility !== 'hidden' && 
@@ -551,10 +615,10 @@ const somMarkJS = `(function() {
 			if (!inViewport) return;
 
 			el.setAttribute('data-iris-id', idCounter);
-			marked.add(el);
 
-			const text = (el.innerText || el.value || '').trim().substring(0, 200);
-			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || '';
+			const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 200);
+			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
+			const role = el.getAttribute('role') || '';
 
 			elementsList.push({
 				id: idCounter,
@@ -570,22 +634,48 @@ const somMarkJS = `(function() {
 				}
 			});
 
-			// Prevent badge from covering tiny icons by shifting it more top-left
 			const isSmall = rect.width < 32 || rect.height < 32;
 			const offset = isSmall ? 15 : 10;
 
-			const badgeTop = Math.max(0, top - offset);
-			const badgeLeft = Math.max(0, left - offset);
+			let isTop = false;
+			let markParent = doc.body;
+			try {
+				if (window.top && window.top.document) {
+					markParent = window.top.document.body;
+					isTop = true;
+				}
+			} catch (e) {}
 
-			const mark = window.top.document.createElement('div');
+			let badgeTop = Math.max(0, (isTop ? top : rect.top) - offset);
+			let badgeLeft = Math.max(0, (isTop ? left : rect.left) - offset);
+
+			// Badge Collision Avoidance
+			let attempts = 0;
+			while (attempts < 5) {
+				const overlaps = placedBadges.some(b => 
+					!(badgeLeft + 25 < b.left || badgeLeft > b.left + b.width ||
+					  badgeTop + 18 < b.top || badgeTop > b.top + b.height)
+				);
+				if (!overlaps) break;
+				badgeLeft += 15;
+				badgeTop += 12;
+				attempts++;
+			}
+			placedBadges.push({left: badgeLeft, top: badgeTop, width: 20, height: 16});
+
+			const mark = doc.createElement('div');
 			mark.className = 'iris-som-mark';
 			mark.innerText = idCounter;
 			mark.style.cssText = 'position:fixed; top:'+badgeTop+'px; left:'+badgeLeft+'px; background:yellow; color:black; font-weight:bold; font-size:13px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); line-height: 1.1;';
-			window.top.document.body.appendChild(mark);
+			
+			try {
+				markParent.appendChild(mark);
+			} catch (e) {
+				doc.body.appendChild(mark);
+			}
 			idCounter++;
 		});
 
-		// Scan frame structure for accessible sub-windows recursively
 		try {
 			const iframes = doc.querySelectorAll('iframe');
 			iframes.forEach(iframe => {
@@ -596,12 +686,16 @@ const somMarkJS = `(function() {
 				                      iframeStyle.display !== 'none';
 
 				if (iframeVisible) {
-					processWindow(iframe.contentWindow, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
+					let winContent = null;
+					try {
+						winContent = iframe.contentWindow;
+					} catch (e) {}
+					if (winContent) {
+						processWindow(winContent, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
+					}
 				}
 			});
-		} catch (e) {
-			// Inaccessible frames are skipped
-		}
+		} catch (e) {}
 	}
 
 	processWindow(window, 0, 0);
@@ -637,12 +731,27 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 				return null;
 			}
 
-			const el = doc.querySelector('[data-iris-id="%d"]');
-			if (el) {
-				const rect = el.getBoundingClientRect();
+			function searchSubtree(root) {
+				const el = root.querySelector('[data-iris-id="%d"]');
+				if (el) return el;
+				
+				const all = root.querySelectorAll('*');
+				for (let i = 0; i < all.length; i++) {
+					const child = all[i];
+					if (child.shadowRoot) {
+						const found = searchSubtree(child.shadowRoot);
+						if (found) return found;
+					}
+				}
+				return null;
+			}
+
+			const targetEl = searchSubtree(doc);
+			if (targetEl) {
+				const rect = targetEl.getBoundingClientRect();
 				return {
-					x: Math.round(rect.left + rect.width/2) + iframeOffsetLeft,
-					y: Math.round(rect.top + rect.height/2) + iframeOffsetTop
+					x: rect.left + rect.width/2 + iframeOffsetLeft,
+					y: rect.top + rect.height/2 + iframeOffsetTop
 				};
 			}
 
@@ -651,8 +760,14 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 				for (let i = 0; i < iframes.length; i++) {
 					const iframe = iframes[i];
 					const iframeRect = iframe.getBoundingClientRect();
-					const res = findElement(iframe.contentWindow, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
-					if (res) return res;
+					let winContent = null;
+					try {
+						winContent = iframe.contentWindow;
+					} catch (e) {}
+					if (winContent) {
+						const res = findElement(winContent, iframeOffsetTop + iframeRect.top, iframeOffsetLeft + iframeRect.left);
+						if (res) return res;
+					}
 				}
 			} catch (e) {
 				// Ignore inaccessible frames
@@ -672,9 +787,9 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 		return 0, 0, fmt.Errorf("evaluating element coords: %w", err)
 	}
 	if res == nil {
-		return 0, 0, fmt.Errorf("element %d not found on screen", id)
+		return 0, 0, fmt.Errorf("element %d not found on screen (may be inside cross-origin iframe)", id)
 	}
-	return int(res["x"]), int(res["y"]), nil
+	return int(math.Round(res["x"])), int(math.Round(res["y"])), nil
 }
 
 func (d *chromedpDriver) Close() error {

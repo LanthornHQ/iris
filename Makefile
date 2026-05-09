@@ -14,7 +14,7 @@ lint:
 		echo "golangci-lint $(GOLINT_VERSION) not found or wrong version, installing to $(GOLINT_BIN_DIR)..."; \
 		curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(GOLINT_BIN_DIR) $(GOLINT_VERSION); \
 	fi
-	$(GOLINT_CMD) run ./...
+	$(GOLINT_CMD) run --timeout=5m ./...
 
 test:
 	go test ./... -v -timeout 60s

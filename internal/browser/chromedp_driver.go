@@ -524,21 +524,6 @@ func toBase62(n int) string {
 }
 
 const pageTreeJS = `(function() {
-	function cleanWindow(win) {
-		let doc;
-		try { doc = win.document; if (!doc) return; } catch (e) { return; }
-		doc.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
-		function cleanSubtree(root) {
-			root.querySelectorAll('[data-iris-id]').forEach(el => el.removeAttribute('data-iris-id'));
-			root.querySelectorAll('*').forEach(el => {
-				if (el.shadowRoot) { cleanSubtree(el.shadowRoot); }
-			});
-		}
-		cleanSubtree(doc);
-		try { win.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove()); } catch (e) {}
-	}
-	cleanWindow(window);
-
 	let idCounter = 0;
 	const lines = [];
 

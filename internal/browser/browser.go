@@ -19,7 +19,7 @@ type SomBounds struct {
 
 // SomElement carries structured textual and spatial metadata for a Set-of-Mark element.
 type SomElement struct {
-	ID        int       `json:"id"`
+	ID        string    `json:"id"`
 	Tag       string    `json:"tag"`
 	Text      string    `json:"text"`
 	AriaLabel string    `json:"aria_label,omitempty"`
@@ -39,7 +39,8 @@ type Driver interface {
 	WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
 	Title(ctx context.Context) (string, error)
 	DrawMarks(ctx context.Context) ([]SomElement, error)
-	GetElementCoords(ctx context.Context, id int) (int, int, error)
+	GetElementCoords(ctx context.Context, id string) (int, int, error)
+	PageTree(ctx context.Context) (string, error)
 	Close() error
 }
 
@@ -64,8 +65,8 @@ type Config struct {
 
 const (
 	envFalse         = "false"
-	defaultWidth     = 1920
-	defaultHeight    = 1080
+	defaultWidth     = 1024
+	defaultHeight    = 768
 	defaultTimeoutMs = 30000
 )
 

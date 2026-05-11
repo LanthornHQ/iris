@@ -113,7 +113,7 @@ func (m *mockBrowserDriver) DrawMarks(_ context.Context) ([]browser.SomElement, 
 	}
 	return []browser.SomElement{
 		{
-			ID:   1,
+			ID:   "A",
 			Tag:  "button",
 			Text: "Click Me",
 			Role: "button",
@@ -128,12 +128,16 @@ func (m *mockBrowserDriver) DrawMarks(_ context.Context) ([]browser.SomElement, 
 	}, nil
 }
 
-func (m *mockBrowserDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {
+func (m *mockBrowserDriver) GetElementCoords(_ context.Context, _ string) (int, int, error) {
 	m.getElementCoordsCalled++
 	if m.getElementCoordsErr != nil {
 		return 0, 0, m.getElementCoordsErr
 	}
 	return m.getElementCoordsX, m.getElementCoordsY, nil
+}
+
+func (m *mockBrowserDriver) PageTree(_ context.Context) (string, error) {
+	return "A] button \"Click Me\"\nB] link \"Home\"", nil
 }
 
 var testLogger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -196,7 +200,7 @@ func TestScreenshot_Success(t *testing.T) {
 	assert.Equal(t, 200, resp.Height)
 	assert.True(t, resp.SoMApplied)
 	require.Len(t, resp.Elements, 1)
-	assert.Equal(t, 1, resp.Elements[0].ID)
+	assert.Equal(t, "A", resp.Elements[0].ID)
 	assert.Equal(t, "button", resp.Elements[0].Tag)
 	assert.Equal(t, "Click Me", resp.Elements[0].Text)
 	assert.Equal(t, "button", resp.Elements[0].Role)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"github.com/LanthornHQ/iris/internal/browser"
@@ -22,9 +23,9 @@ func (t *Click) Description() string {
 	return `Click at specific viewport coordinates or a Set-of-Mark (SoM) element ID in the browser.
 
 Parameters:
+  - element_id (string, optional): The ID of the Set-of-Mark (SoM) badge on the element to click. If specified, x and y are ignored.
   - x (int, optional): X coordinate in viewport pixels. Required if element_id is not specified.
   - y (int, optional): Y coordinate in viewport pixels. Required if element_id is not specified.
-  - element_id (int, optional): The ID of the Set-of-Mark (SoM) badge on the element to click. If specified, x and y are ignored.
   - button (string, optional): Mouse button. One of "left" (default), "right", "middle".
     Use "double" for a double-click.
   - annotate (boolean, optional): If true, a red dot marks the click position on the returned screenshot.
@@ -57,8 +58,8 @@ func (t *Click) ParametersSchema() map[string]any {
 				"description": "Y coordinate in viewport pixels. Required if element_id is not specified.",
 			},
 			"element_id": map[string]any{
-				"type":        "integer",
-				"description": "Optional Set-of-Mark (SoM) badge ID to click instead of explicit coordinates",
+				"type":        "string",
+				"description": "Optional Set-of-Mark (SoM) badge ID (e.g. A, B, AA) to click instead of explicit coordinates",
 			},
 			"button": map[string]any{
 				"type":        "string",
@@ -75,16 +76,24 @@ func (t *Click) ParametersSchema() map[string]any {
 }
 
 func (t *Click) resolveCoordinates(ctx context.Context, args map[string]any) (int, int, error) {
-	if _, ok := args["element_id"]; ok {
-		elementID := optIntArg(args, "element_id", 0)
-		if elementID <= 0 {
-			return 0, 0, errors.New("element_id must be a positive integer")
+	if elementID, ok := args["element_id"]; ok {
+		var sid string
+		switch v := elementID.(type) {
+		case string:
+			sid = v
+		case float64:
+			sid = strconv.Itoa(int(v))
+		default:
+			return 0, 0, fmt.Errorf("element_id must be a string, got %T", elementID)
 		}
-		x, y, err := t.Driver.GetElementCoords(ctx, elementID)
+		if sid == "" {
+			return 0, 0, errors.New("element_id must be a non-empty string")
+		}
+		x, y, err := t.Driver.GetElementCoords(ctx, sid)
 		if err != nil {
-			return 0, 0, fmt.Errorf("locating element %d: %w", elementID, err)
+			return 0, 0, fmt.Errorf("locating element %s: %w", sid, err)
 		}
-		t.Logger.InfoContext(ctx, "resolved element_id to coordinates", "element_id", elementID, "x", x, "y", y)
+		t.Logger.InfoContext(ctx, "resolved element_id to coordinates", "element_id", sid, "x", x, "y", y)
 		return x, y, nil
 	}
 

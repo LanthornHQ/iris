@@ -497,6 +497,131 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 	return title, nil
 }
 
+const pageTreeJS = `(function() {
+	function cleanWindow(win) {
+		let doc;
+		try { doc = win.document; if (!doc) return; } catch (e) { return; }
+		doc.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+		function cleanSubtree(root) {
+			root.querySelectorAll('[data-iris-id]').forEach(el => el.removeAttribute('data-iris-id'));
+			root.querySelectorAll('*').forEach(el => {
+				if (el.shadowRoot) { cleanSubtree(el.shadowRoot); }
+			});
+		}
+		cleanSubtree(doc);
+		try { win.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove()); } catch (e) {}
+	}
+	cleanWindow(window);
+
+	let idCounter = 0;
+	const lines = [];
+
+	function deepQuery(root, selector) {
+		const results = Array.from(root.querySelectorAll(selector));
+		root.querySelectorAll('*').forEach(el => {
+			if (el.shadowRoot) { results.push(...deepQuery(el.shadowRoot, selector)); }
+		});
+		return results;
+	}
+
+	function toBase62(n) {
+		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		if (n <= 0) return "A";
+		let result = "";
+		n--;
+		while (n >= 0) {
+			result = chars[n % chars.length] + result;
+			n = Math.floor(n / chars.length) - 1;
+			if (n < 0) break;
+		}
+		return result;
+	}
+
+	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
+		if (idCounter >= 200) return;
+
+		let doc;
+		try { doc = win.document; if (!doc) return; } catch (e) { return; }
+
+		const standardSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+		const standard = deepQuery(doc, standardSelector);
+		const candidates = [];
+		const marked = new Set();
+		standard.forEach(el => { if (!marked.has(el)) { marked.add(el); candidates.push({el: el}); } });
+
+		if (candidates.length < 200) {
+			const pointerSelector = 'div, span, li, svg, img';
+			deepQuery(doc, pointerSelector).forEach(el => {
+				if (!marked.has(el)) {
+					try {
+						const style = win.getComputedStyle(el);
+						if (style && style.cursor === 'pointer') {
+							marked.add(el);
+							candidates.push({el: el, style: style});
+						}
+					} catch (e) {}
+				}
+			});
+		}
+
+		candidates.forEach(cand => {
+			if (idCounter >= 200) return;
+			const el = cand.el;
+			const rect = el.getBoundingClientRect();
+			const style = cand.style || win.getComputedStyle(el);
+			const isVisible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.opacity !== '0' && style.display !== 'none';
+			if (!isVisible) return;
+
+			const top = rect.top + iframeOffsetTop;
+			const left = rect.left + iframeOffsetLeft;
+			const bottom = rect.bottom + iframeOffsetTop;
+			const right = rect.right + iframeOffsetLeft;
+			if (!(top < window.innerHeight && bottom > 0 && left < window.innerWidth && right > 0)) return;
+
+			const sid = toBase62(idCounter + 1);
+			idCounter++;
+			el.setAttribute('data-iris-id', sid);
+
+			const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 80);
+			const role = el.getAttribute('role') || el.tagName.toLowerCase();
+			const typeAttr = el.getAttribute('type') || '';
+			let label = role;
+			if (typeAttr) label = typeAttr + '_' + role;
+			if (text) label += ' "' + text + '"';
+
+			lines.push(sid + '] ' + label);
+		});
+
+		try {
+			doc.querySelectorAll('iframe').forEach(iframe => {
+				const rect = iframe.getBoundingClientRect();
+				const style = win.getComputedStyle(iframe);
+				if (rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none') {
+					try { processWindow(iframe.contentWindow, iframeOffsetTop + rect.top, iframeOffsetLeft + rect.left); } catch (e) {}
+				}
+			});
+		} catch (e) {}
+	}
+
+	processWindow(window, 0, 0);
+	return lines.join('\n');
+})()`
+
+func (d *chromedpDriver) PageTree(ctx context.Context) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.logger.DebugContext(ctx, "extracting page tree")
+
+	var tree string
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(pageTreeJS, &tree)); err != nil {
+		return "", fmt.Errorf("page tree extraction: %w", err)
+	}
+	d.logger.DebugContext(ctx, "page tree extracted", "length", len(tree))
+	return tree, nil
+}
+
 const somMarkJS = `(function() {
 	function cleanWindow(win) {
 		let doc;
@@ -535,9 +660,22 @@ const somMarkJS = `(function() {
 		window.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
 	} catch (e) {}
 
-	let idCounter = 1;
+	let idCounter = 0;
 	const elementsList = [];
 	const placedBadges = [];
+
+	function toBase62(n) {
+		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+		if (n <= 0) return "A";
+		let result = "";
+		n--;
+		while (n >= 0) {
+			result = chars[n % chars.length] + result;
+			n = Math.floor(n / chars.length) - 1;
+			if (n < 0) break;
+		}
+		return result;
+	}
 
 	function deepQuery(root, selector) {
 		const results = Array.from(root.querySelectorAll(selector));
@@ -550,7 +688,7 @@ const somMarkJS = `(function() {
 	}
 
 	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
-		if (idCounter > 200) return;
+		if (idCounter >= 200) return;
 
 		let doc;
 		try {
@@ -591,7 +729,7 @@ const somMarkJS = `(function() {
 		}
 
 		candidates.forEach(cand => {
-			if (idCounter > 200) return;
+			if (idCounter >= 200) return;
 
 			const el = cand.el;
 			const rect = el.getBoundingClientRect();
@@ -614,7 +752,8 @@ const somMarkJS = `(function() {
 
 			if (!inViewport) return;
 
-			el.setAttribute('data-iris-id', idCounter);
+			const sid = toBase62(idCounter + 1);
+			el.setAttribute('data-iris-id', sid);
 
 			const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 200);
 			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
@@ -622,7 +761,7 @@ const somMarkJS = `(function() {
 			const typeAttr = el.getAttribute('type') || '';
 
 			elementsList.push({
-				id: idCounter,
+				id: sid,
 				tag: el.tagName.toLowerCase(),
 				text: text,
 				aria_label: ariaLabel,
@@ -667,7 +806,7 @@ const somMarkJS = `(function() {
 
 			const mark = doc.createElement('div');
 			mark.className = 'iris-som-mark';
-			mark.innerText = idCounter;
+			mark.innerText = sid;
 			mark.style.cssText = 'position:fixed; top:'+badgeTop+'px; left:'+badgeLeft+'px; background:yellow; color:black; font-weight:bold; font-size:13px; padding:2px 4px; border:1px solid black; z-index:2147483647; pointer-events:none; border-radius:3px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); line-height: 1.1;';
 			
 			try {
@@ -718,7 +857,7 @@ func (d *chromedpDriver) DrawMarks(ctx context.Context) ([]SomElement, error) {
 	return res, nil
 }
 
-func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int, error) {
+func (d *chromedpDriver) GetElementCoords(ctx context.Context, id string) (int, int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "getting element coordinates", "element_id", id)
@@ -734,7 +873,7 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 			}
 
 			function searchSubtree(root) {
-				const el = root.querySelector('[data-iris-id="%d"]');
+				const el = root.querySelector('[data-iris-id="%s"]');
 				if (el) return el;
 				
 				const all = root.querySelectorAll('*');
@@ -789,7 +928,7 @@ func (d *chromedpDriver) GetElementCoords(ctx context.Context, id int) (int, int
 		return 0, 0, fmt.Errorf("evaluating element coords: %w", err)
 	}
 	if res == nil {
-		return 0, 0, fmt.Errorf("element %d not found on screen (may be inside cross-origin iframe)", id)
+		return 0, 0, fmt.Errorf("element %s not found on screen (may be inside cross-origin iframe)", id)
 	}
 	return int(math.Round(res["x"])), int(math.Round(res["y"])), nil
 }

@@ -2,6 +2,7 @@ package browser
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -209,6 +210,43 @@ func TestMockDriver_Close(t *testing.T) {
 	err := md.Close()
 	require.NoError(t, err)
 	assert.Equal(t, 1, md.closeCalled)
+}
+
+func TestToBase62(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected string
+	}{
+		{1, "A"},
+		{2, "B"},
+		{3, "C"},
+		{25, "Y"},
+		{26, "Z"},
+		{27, "a"},
+		{51, "y"},
+		{52, "z"},
+		{61, "8"},
+		{62, "9"},
+		{63, "AA"},
+		{199, "CM"},
+		{200, "CN"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d->%s", tt.input, tt.expected), func(t *testing.T) {
+			assert.Equal(t, tt.expected, toBase62(tt.input))
+		})
+	}
+}
+
+func TestToBase62_MatchesJSReference(t *testing.T) {
+	expected := map[int]string{
+		1: "A", 2: "B", 3: "C", 26: "Z", 27: "a",
+		51: "y", 52: "z", 63: "AA", 200: "CN",
+	}
+	for n, want := range expected {
+		got := toBase62(n)
+		assert.Equal(t, want, got, "toBase62(%d) mismatch: Go=%q, expected=%q", n, got, want)
+	}
 }
 
 func TestNewDriver_ContextCancellation(t *testing.T) {

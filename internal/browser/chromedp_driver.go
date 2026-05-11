@@ -497,6 +497,32 @@ func (d *chromedpDriver) Title(ctx context.Context) (string, error) {
 	return title, nil
 }
 
+const base62Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+const base62MaxLen = 4
+
+func toBase62(n int) string {
+	if n <= 0 {
+		return "A"
+	}
+	n--
+	if n < 0 {
+		return "A"
+	}
+	result := make([]byte, 0, base62MaxLen)
+	for {
+		result = append(result, base62Chars[n%len(base62Chars)])
+		n = n/len(base62Chars) - 1
+		if n < 0 {
+			break
+		}
+	}
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
+	}
+	return string(result)
+}
+
 const pageTreeJS = `(function() {
 	function cleanWindow(win) {
 		let doc;
@@ -604,6 +630,9 @@ const pageTreeJS = `(function() {
 	}
 
 	processWindow(window, 0, 0);
+	if (idCounter >= 200) {
+		lines.push('\\n... truncated: 200+ elements found (use elements JSON for full list)');
+	}
 	return lines.join('\n');
 })()`
 

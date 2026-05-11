@@ -632,17 +632,6 @@ const somMarkJS = `(function() {
 			return;
 		}
 		doc.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
-		
-		function cleanSubtree(root) {
-			root.querySelectorAll('[data-iris-id]').forEach(el => el.removeAttribute('data-iris-id'));
-			root.querySelectorAll('*').forEach(el => {
-				if (el.shadowRoot) {
-					cleanSubtree(el.shadowRoot);
-				}
-			});
-		}
-		cleanSubtree(doc);
-
 		try {
 			const iframes = doc.querySelectorAll('iframe');
 			iframes.forEach(iframe => {
@@ -660,22 +649,9 @@ const somMarkJS = `(function() {
 		window.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
 	} catch (e) {}
 
-	let idCounter = 0;
+	let elementCount = 0;
 	const elementsList = [];
 	const placedBadges = [];
-
-	function toBase62(n) {
-		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-		if (n <= 0) return "A";
-		let result = "";
-		n--;
-		while (n >= 0) {
-			result = chars[n % chars.length] + result;
-			n = Math.floor(n / chars.length) - 1;
-			if (n < 0) break;
-		}
-		return result;
-	}
 
 	function deepQuery(root, selector) {
 		const results = Array.from(root.querySelectorAll(selector));
@@ -688,7 +664,7 @@ const somMarkJS = `(function() {
 	}
 
 	function processWindow(win, iframeOffsetTop, iframeOffsetLeft) {
-		if (idCounter >= 200) return;
+		if (elementCount >= 200) return;
 
 		let doc;
 		try {
@@ -698,62 +674,29 @@ const somMarkJS = `(function() {
 			return;
 		}
 
-		// 1. Pass 1: Standard interactive query
-		const standardSelector = 'button, a, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
-		const standard = deepQuery(doc, standardSelector);
-
+		// Collect elements that already have data-iris-id from pageTreeJS
 		const candidates = [];
-		const marked = new Set();
-		standard.forEach(el => {
-			if (!marked.has(el)) {
-				marked.add(el);
-				candidates.push({el: el, isStandardInteractive: true});
-			}
-		});
-
-		// 2. Pass 2: Custom pointer candidates from common clickable tags only to avoid layout thrashing
-		if (candidates.length < 200) {
-			const pointerSelector = 'div, span, li, svg, img';
-			const pointerCandidates = deepQuery(doc, pointerSelector);
-			pointerCandidates.forEach(el => {
-				if (!marked.has(el)) {
-					try {
-						const style = win.getComputedStyle(el);
-						if (style && style.cursor === 'pointer') {
-							marked.add(el);
-							candidates.push({el: el, isStandardInteractive: false, style: style});
-						}
-					} catch (e) {}
-				}
-			});
-		}
-
-		candidates.forEach(cand => {
-			if (idCounter >= 200) return;
-
-			const el = cand.el;
+		deepQuery(doc, '[data-iris-id]').forEach(el => {
 			const rect = el.getBoundingClientRect();
-			const style = cand.style || win.getComputedStyle(el);
-
+			const style = win.getComputedStyle(el);
 			const isVisible = rect.width > 0 && rect.height > 0 && 
 			                  style.visibility !== 'hidden' && 
 			                  style.opacity !== '0' && 
 			                  style.display !== 'none';
-
 			if (!isVisible) return;
+			candidates.push({el: el, style: style, rect: rect});
+		});
+
+		candidates.forEach(cand => {
+			if (elementCount >= 200) return;
+
+			const el = cand.el;
+			const rect = cand.rect;
+			const sid = el.getAttribute('data-iris-id');
+			if (!sid) return;
 
 			const top = rect.top + iframeOffsetTop;
 			const left = rect.left + iframeOffsetLeft;
-			const bottom = rect.bottom + iframeOffsetTop;
-			const right = rect.right + iframeOffsetLeft;
-
-			const inViewport = top < window.innerHeight && bottom > 0 && 
-			                   left < window.innerWidth && right > 0;
-
-			if (!inViewport) return;
-
-			const sid = toBase62(idCounter + 1);
-			el.setAttribute('data-iris-id', sid);
 
 			const text = (el.innerText || el.textContent || el.value || el.getAttribute('aria-label') || el.getAttribute('title') || '').trim().substring(0, 200);
 			const ariaLabel = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '';
@@ -790,7 +733,6 @@ const somMarkJS = `(function() {
 			let badgeTop = Math.max(0, (isTop ? top : rect.top) - offset);
 			let badgeLeft = Math.max(0, (isTop ? left : rect.left) - offset);
 
-			// Badge Collision Avoidance
 			let attempts = 0;
 			while (attempts < 5) {
 				const overlaps = placedBadges.some(b => 
@@ -814,7 +756,7 @@ const somMarkJS = `(function() {
 			} catch (e) {
 				doc.body.appendChild(mark);
 			}
-			idCounter++;
+			elementCount++;
 		});
 
 		try {

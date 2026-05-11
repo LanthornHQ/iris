@@ -8,6 +8,7 @@ type ScreenshotResponse struct {
 	Height      int                  `json:"height"`
 	SoMApplied  bool                 `json:"som_applied"`
 	Elements    []browser.SomElement `json:"elements,omitempty"`
+	PageTree    string               `json:"page_tree,omitempty"`
 }
 
 type ClickResponse struct {

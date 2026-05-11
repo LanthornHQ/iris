@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-Xvfb :99 -screen 0 1920x1080x24 &
+# resolutions: 1024×768, 1280×1024, 1920×1080
+Xvfb :99 -screen 0 1024x768x24 &
 sleep 1
 
 export DISPLAY=:99

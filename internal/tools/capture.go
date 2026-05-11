@@ -20,11 +20,16 @@ func (t *Screenshot) Description() string {
 	return `Capture a screenshot of the current browser viewport.
 
 Behavioral Guidance & Set-of-Mark (SoM):
-- Set-of-Mark (SoM) is an advanced visual grounding mechanism. When active (som=true), it overlays high-visibility yellow badges with black numbers over all interactive elements on the page.
-- Calling agents can subsequently use these ID numbers directly in interaction tools (such as click with element_id) to bypass raw coordinate estimation entirely.
+- Set-of-Mark (SoM) is an advanced visual grounding mechanism. When active (som=true), it overlays high-visibility yellow badges with alphanumeric IDs over all interactive elements on the page.
+- Calling agents can subsequently use these IDs directly in interaction tools (such as click with element_id) to bypass raw coordinate estimation entirely.
 - SoM badges are dynamic and temporary: they are wiped and redrawn fresh on each screenshot call to reflect the latest interactive elements without accumulating visual noise as the DOM mutates.
 - Use som=false to obtain a raw, unannotated screenshot of the webpage when you need a pristine view or are performing pure visual inspection.
 - The returned 'som_applied' boolean field indicates whether badges were successfully drawn. If false, the model should fall back to raw coordinate-based interaction.
+
+Page Tree (AXTree):
+- The response includes a 'page_tree' field with a compact text representation of the page structure.
+- Each line shows: element_id] role "label" (e.g., 'A] button "Submit"')
+- Use page_tree for precise element identification; it is cheaper than re-screenshoting just to see what changed.
 
 Coordinate System & Scaling:
 - The coordinate system is based on standard CSS viewport pixels. (0,0) is the top-left corner of the page.
@@ -79,6 +84,13 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
 	}
 
+	var pageTree string
+	if tree, err := t.Driver.PageTree(ctx); err != nil {
+		t.Logger.WarnContext(ctx, "page tree extraction failed, continuing without", "error", err)
+	} else {
+		pageTree = tree
+	}
+
 	b64, w, h, err := t.Driver.Screenshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("screenshot failed: %w", err)
@@ -93,5 +105,6 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		Height:      h,
 		SoMApplied:  somApplied,
 		Elements:    somElems,
+		PageTree:    pageTree,
 	}, nil
 }

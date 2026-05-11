@@ -87,7 +87,7 @@ func (m *mockDriver) DrawMarks(_ context.Context) ([]SomElement, error) {
 	m.drawMarksCalled++
 	return []SomElement{
 		{
-			ID:   1,
+			ID:   "A",
 			Tag:  "button",
 			Text: "Click Me",
 			Role: "button",
@@ -102,17 +102,21 @@ func (m *mockDriver) DrawMarks(_ context.Context) ([]SomElement, error) {
 	}, nil
 }
 
-func (m *mockDriver) GetElementCoords(_ context.Context, _ int) (int, int, error) {
+func (m *mockDriver) GetElementCoords(_ context.Context, _ string) (int, int, error) {
 	m.getElementCoordsCalled++
 	return 0, 0, nil
+}
+
+func (m *mockDriver) PageTree(_ context.Context) (string, error) {
+	return "A] button \"Click Me\"", nil
 }
 
 func TestConfigFromEnv_Defaults(t *testing.T) {
 	cfg, err := ConfigFromEnv()
 	require.NoError(t, err)
 	assert.True(t, cfg.Headless)
-	assert.Equal(t, 1920, cfg.Width)
-	assert.Equal(t, 1080, cfg.Height)
+	assert.Equal(t, 1024, cfg.Width)
+	assert.Equal(t, 768, cfg.Height)
 	assert.True(t, cfg.NoSandbox)
 	assert.Equal(t, 30000, cfg.TimeoutMs)
 	assert.Empty(t, cfg.ChromePath)

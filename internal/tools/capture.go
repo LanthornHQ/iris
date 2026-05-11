@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/LanthornHQ/iris/internal/browser"
@@ -65,9 +66,25 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		explicitSom = true
 	}
 
+	// 1. Extract page tree BEFORE drawing badges — this avoids badge elements
+	//    polluting the accessibility tree, and ensures page_tree IDs are assigned
+	//    before badges overwrite data-iris-id attributes.
+	var pageTree string
+	pageTreeLineCount := 0
+	if tree, err := t.Driver.PageTree(ctx); err != nil {
+		t.Logger.WarnContext(ctx, "page tree extraction failed, continuing without", "error", err)
+	} else {
+		pageTree = tree
+		pageTreeLineCount = len(strings.Split(tree, "\n"))
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
+	}
+
+	// 2. Draw SoM badges AFTER page tree extraction — badges will be visible in the screenshot.
 	var somElems []browser.SomElement
 	somApplied := false
-
 	if som {
 		if res, err := t.Driver.DrawMarks(ctx); err != nil {
 			if explicitSom {
@@ -80,17 +97,12 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		}
 	}
 
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
+	if somApplied && pageTreeLineCount < 5 && len(somElems) > 20 {
+		t.Logger.WarnContext(ctx, "sparse page tree: accessibility tree may be incomplete",
+			"page_tree_lines", pageTreeLineCount, "som_elements", len(somElems))
 	}
 
-	var pageTree string
-	if tree, err := t.Driver.PageTree(ctx); err != nil {
-		t.Logger.WarnContext(ctx, "page tree extraction failed, continuing without", "error", err)
-	} else {
-		pageTree = tree
-	}
-
+	// 3. Capture screenshot with badges visible.
 	b64, w, h, err := t.Driver.Screenshot(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("screenshot failed: %w", err)

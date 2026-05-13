@@ -524,6 +524,7 @@ func toBase62(n int) string {
 }
 
 const pageTreeJS = `(function() {
+	document.querySelectorAll('[data-iris-id]').forEach(e => e.removeAttribute('data-iris-id'));
 	let idCounter = 0;
 	const lines = [];
 
@@ -813,7 +814,23 @@ func (d *chromedpDriver) DrawMarks(ctx context.Context) ([]SomElement, error) {
 	return res, nil
 }
 
+func isValidElementID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, c := range id {
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *chromedpDriver) GetElementCoords(ctx context.Context, id string) (int, int, error) {
+	if !isValidElementID(id) {
+		return 0, 0, fmt.Errorf("invalid element_id %q: must be alphanumeric", id)
+	}
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.logger.InfoContext(ctx, "getting element coordinates", "element_id", id)

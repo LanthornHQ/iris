@@ -53,6 +53,9 @@ func (t *Scroll) ParametersSchema() map[string]any {
 func (t *Scroll) Execute(ctx context.Context, args map[string]any) (any, error) {
 	direction := "down"
 	if d, ok := args["direction"].(string); ok && d != "" {
+		if d != "up" && d != "down" {
+			return nil, fmt.Errorf("invalid direction %q: must be \"up\" or \"down\"", d)
+		}
 		direction = d
 	}
 	clicks := optIntArg(args, "clicks", defaultScrollClicks)

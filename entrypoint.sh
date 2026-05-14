@@ -1,8 +1,9 @@
 #!/bin/bash
 set -e
 
-# resolutions: 1024×768, 1280×1024, 1920×1080
-Xvfb :99 -screen 0 1024x768x24 &
+IRIS_WINDOW_WIDTH=${IRIS_WINDOW_WIDTH:-1920}
+IRIS_WINDOW_HEIGHT=${IRIS_WINDOW_HEIGHT:-1080}
+Xvfb :99 -screen 0 "${IRIS_WINDOW_WIDTH}x${IRIS_WINDOW_HEIGHT}x24" &
 sleep 1
 
 export DISPLAY=:99

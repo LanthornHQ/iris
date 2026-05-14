@@ -27,7 +27,7 @@ Automated web browser agents using coordinate-based mouse input traditionally re
 +-------------------------------------------------------------+
 ```
 
-With SoM, the VLM's task is simplified from **predicting absolute spatial geometry** to **reading a visible number** (e.g., `"Click on element 4"`). The click tool is then upgraded to resolve this element ID into precise pixel coordinates on the screen.
+With SoM, the VLM's task is simplified from **predicting absolute spatial geometry** to **reading a visible label** (e.g., `"Click on element A"`). The click tool is then upgraded to resolve this element ID into precise pixel coordinates on the screen.
 
 ---
 
@@ -70,7 +70,7 @@ sequenceDiagram
     note over VLM, Browser: 2. Execution Phase
     VLM->>MCP: Call "click" tool with element_id = 4
     MCP->>Tool: Execute Click
-    Tool->>Driver: GetElementCoords(ctx, 4)
+    Tool->>Driver: GetElementCoords(ctx, "4")
     Driver->>Browser: Find element matching data-iris-id="4" & query rect
     Browser-->>Driver: Return x, y center coords
     Tool->>Driver: Click(ctx, x, y)
@@ -98,18 +98,20 @@ type SomBounds struct {
 
 // SomElement carries structured textual and spatial metadata for a Set-of-Mark element.
 type SomElement struct {
-	ID        int       `json:"id"`
+	ID        string    `json:"id"`
 	Tag       string    `json:"tag"`
 	Text      string    `json:"text"`
 	AriaLabel string    `json:"aria_label,omitempty"`
 	Role      string    `json:"role,omitempty"`
+	Type      string    `json:"type,omitempty"`
 	Bounds    SomBounds `json:"bounds"`
 }
 
 type Driver interface {
     // ... existing methods
     DrawMarks(ctx context.Context) ([]SomElement, error)
-    GetElementCoords(ctx context.Context, id int) (int, int, error)
+    GetElementCoords(ctx context.Context, id string) (int, int, error)
+    PageTree(ctx context.Context) (string, error)
 }
 ```
 
@@ -126,7 +128,7 @@ Implemented in [chromedp_driver.go](file:///c:/Users/igork/lanthorn/iris/interna
   7. Offsets badges top-left (e.g., `-15px` instead of `-10px` if element dimensions are under `32px`), preventing the "Occlusion Problem" where small icons are completely obscured by the yellow overlay.
   8. Appends a high-contrast black-on-yellow badge with a dark border (`z-index: 2147483647`).
   9. Returns a full JSON elements metadata array back to the Go runtime.
-* **`GetElementCoords`**: Locks `d.mu`. Executes a recursive query looking up `[data-iris-id="%d"]` inside the top document and all accessible same-origin sub-iframes, maps parent coordinate offsets, and returns the absolute mathematical center.
+* **`GetElementCoords`**: Locks `d.mu`. Executes a recursive query looking up `[data-iris-id="%s"]` inside the top document and all accessible same-origin sub-iframes, maps parent coordinate offsets, and returns the absolute mathematical center.
 
 ### C. Screenshot Integration with Explicit Failures
 In [capture.go](file:///c:/Users/igork/lanthorn/iris/internal/tools/capture.go), `DrawMarks` is injected and element lists are parsed transparently:
@@ -174,16 +176,19 @@ In [click.go](file:///c:/Users/igork/lanthorn/iris/internal/tools/click.go), coo
 
 ```go
 func (t *Click) resolveCoordinates(ctx context.Context, args map[string]any) (int, int, error) {
-	if _, ok := args["element_id"]; ok {
-		elementID := optIntArg(args, "element_id", 0)
-		if elementID <= 0 {
-			return 0, 0, errors.New("element_id must be a positive integer")
+	if elementID, ok := args["element_id"]; ok {
+		sid, ok := elementID.(string)
+		if !ok {
+			return 0, 0, fmt.Errorf("element_id must be a string, got %T", elementID)
 		}
-		x, y, err := t.Driver.GetElementCoords(ctx, elementID)
+		if sid == "" {
+			return 0, 0, errors.New("element_id must be a non-empty string")
+		}
+		x, y, err := t.Driver.GetElementCoords(ctx, sid)
 		if err != nil {
-			return 0, 0, fmt.Errorf("locating element %d: %w", elementID, err)
+			return 0, 0, fmt.Errorf("locating element %q: %w", sid, err)
 		}
-		t.Logger.InfoContext(ctx, "resolved element_id to coordinates", "element_id", elementID, "x", x, "y", y)
+		t.Logger.InfoContext(ctx, "resolved element_id to coordinates", "element_id", sid, "x", x, "y", y)
 		return x, y, nil
 	}
 

@@ -128,6 +128,8 @@ func (m *mockBrowserDriver) DrawMarks(_ context.Context) ([]browser.SomElement, 
 	}, nil
 }
 
+func (m *mockBrowserDriver) ClearMarks(_ context.Context) error { return nil }
+
 func (m *mockBrowserDriver) GetElementCoords(_ context.Context, _ string) (int, int, error) {
 	m.getElementCoordsCalled++
 	if m.getElementCoordsErr != nil {

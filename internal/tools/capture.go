@@ -85,22 +85,9 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 	// 2. Draw or clear SoM badges AFTER page tree extraction.
 	// Always clear first so a previous agent screenshot's marks don't bleed into
 	// clean audit/before/after captures when som=false.
-	var somElems []browser.SomElement
-	somApplied := false
-	if som {
-		if res, err := t.Driver.DrawMarks(ctx); err != nil {
-			if explicitSom {
-				return nil, fmt.Errorf("som requested but failed to draw marks: %w", err)
-			}
-			t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
-		} else {
-			somElems = res
-			somApplied = true
-		}
-	} else {
-		if err := t.Driver.ClearMarks(ctx); err != nil {
-			t.Logger.WarnContext(ctx, "failed to clear SoM marks before clean screenshot", "error", err)
-		}
+	somElems, somApplied, marksErr := t.applyMarks(ctx, som, explicitSom)
+	if marksErr != nil {
+		return nil, marksErr
 	}
 
 	if somApplied && pageTreeLineCount < 5 && len(somElems) > 20 {
@@ -125,4 +112,27 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		Elements:    somElems,
 		PageTree:    pageTree,
 	}, nil
+}
+
+// applyMarks either draws SoM badges (som=true) or clears any leftover ones (som=false).
+// Returns the element list, whether marks were successfully applied, and any fatal error.
+func (t *Screenshot) applyMarks(
+	ctx context.Context,
+	som, explicitSom bool,
+) ([]browser.SomElement, bool, error) {
+	if !som {
+		if err := t.Driver.ClearMarks(ctx); err != nil {
+			t.Logger.WarnContext(ctx, "failed to clear SoM marks before clean screenshot", "error", err)
+		}
+		return nil, false, nil
+	}
+	res, err := t.Driver.DrawMarks(ctx)
+	if err != nil {
+		if explicitSom {
+			return nil, false, fmt.Errorf("som requested but failed to draw marks: %w", err)
+		}
+		t.Logger.WarnContext(ctx, "failed to draw Set-of-Mark badges", "error", err)
+		return nil, false, nil
+	}
+	return res, true, nil
 }

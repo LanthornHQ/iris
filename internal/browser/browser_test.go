@@ -103,6 +103,8 @@ func (m *mockDriver) DrawMarks(_ context.Context) ([]SomElement, error) {
 	}, nil
 }
 
+func (m *mockDriver) ClearMarks(_ context.Context) error { return nil }
+
 func (m *mockDriver) GetElementCoords(_ context.Context, _ string) (int, int, error) {
 	m.getElementCoordsCalled++
 	return 0, 0, nil

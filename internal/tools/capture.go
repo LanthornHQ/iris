@@ -82,7 +82,9 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("screenshot aborted before capture: %w", err)
 	}
 
-	// 2. Draw SoM badges AFTER page tree extraction — badges will be visible in the screenshot.
+	// 2. Draw or clear SoM badges AFTER page tree extraction.
+	// Always clear first so a previous agent screenshot's marks don't bleed into
+	// clean audit/before/after captures when som=false.
 	var somElems []browser.SomElement
 	somApplied := false
 	if som {
@@ -94,6 +96,10 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		} else {
 			somElems = res
 			somApplied = true
+		}
+	} else {
+		if err := t.Driver.ClearMarks(ctx); err != nil {
+			t.Logger.WarnContext(ctx, "failed to clear SoM marks before clean screenshot", "error", err)
 		}
 	}
 

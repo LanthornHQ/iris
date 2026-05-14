@@ -39,6 +39,7 @@ type Driver interface {
 	WaitForStable(ctx context.Context, timeoutMs int, threshold float64) (bool, int64, error)
 	Title(ctx context.Context) (string, error)
 	DrawMarks(ctx context.Context) ([]SomElement, error)
+	ClearMarks(ctx context.Context) error
 	GetElementCoords(ctx context.Context, id string) (int, int, error)
 	PageTree(ctx context.Context) (string, error)
 	Close() error

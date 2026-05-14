@@ -637,6 +637,37 @@ func (d *chromedpDriver) PageTree(ctx context.Context) (string, error) {
 	return tree, nil
 }
 
+const clearMarksJS = `(function() {
+	function cleanWindow(win) {
+		let doc;
+		try {
+			doc = win.document;
+			if (!doc) return;
+		} catch (e) { return; }
+		doc.querySelectorAll('.iris-som-mark').forEach(e => e.remove());
+		try {
+			doc.querySelectorAll('iframe').forEach(iframe => {
+				try {
+					if (iframe.contentWindow) cleanWindow(iframe.contentWindow);
+				} catch (e) {}
+			});
+		} catch (e) {}
+	}
+	cleanWindow(window);
+	try { window.top.document.querySelectorAll('.iris-som-mark').forEach(e => e.remove()); } catch (e) {}
+})();`
+
+func (d *chromedpDriver) ClearMarks(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	actionCtx, cancel := d.withTimeout(ctx)
+	defer cancel()
+	if err := chromedp.Run(actionCtx, chromedp.Evaluate(clearMarksJS, nil)); err != nil {
+		return fmt.Errorf("clearing marks: %w", err)
+	}
+	return nil
+}
+
 const somMarkJS = `(function() {
 	function cleanWindow(win) {
 		let doc;

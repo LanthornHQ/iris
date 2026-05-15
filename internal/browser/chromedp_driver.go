@@ -45,12 +45,36 @@ type chromedpDriver struct {
 
 const stealthJS = `(function() {
 	Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+	// Remove credential leak / "Change your password" overlays if they appear
+	var observer = new MutationObserver(function(mutations) {
+		mutations.forEach(function() {
+			document.querySelectorAll('infobar, .screen-reader-only, [role="alert"]').forEach(function(el) {
+				if (el.textContent && /change.*password|update.*password|password.*leak|compromised/i.test(el.textContent)) {
+					el.remove();
+				}
+			});
+			// Chrome's credential leak bar uses a div with specific attributes
+			document.querySelectorAll('div[class*="infobar"], div[class*="toolbar"]').forEach(function(el) {
+				if (el.shadowRoot) {
+					el.shadowRoot.querySelectorAll('button').forEach(function(btn) {
+						if (/close|dismiss|no/i.test(btn.textContent || btn.getAttribute('aria-label') || '')) {
+							btn.click();
+						}
+					});
+				}
+			});
+		});
+	});
+	if (document.body) {
+		observer.observe(document.body, {childList: true, subtree: true});
+	}
 })();`
 
 func buildAllocatorOpts(cfg Config) []chromedp.ExecAllocatorOption {
 	opts := commonFlags(cfg)
 	opts = append(opts,
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("incognito", true),
 	)
 	if cfg.Headless {
 		opts = append(opts, chromedp.Flag("headless", "new"))
@@ -1024,10 +1048,18 @@ func writeChromePrefs(dataDir string) error {
 
 	localState := map[string]any{
 		"safebrowsing": map[string]any{
-			"enabled":  false,
-			"enhanced": false,
+			"enabled":        false,
+			"enhanced":       false,
+			"proceed_anyway": true,
 		},
 		"credentials_enable_service": false,
+		"password_manager_enabled":   false,
+		"profile": map[string]any{
+			"default_content_setting_values": map[string]any{
+				"notifications": contentSettingBlock,
+				"geolocation":   contentSettingBlock,
+			},
+		},
 	}
 	ls, err := json.Marshal(localState)
 	if err != nil {

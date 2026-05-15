@@ -6,9 +6,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"image/jpeg"
+	"image/png"
 	"log/slog"
 	"math"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +21,6 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
-
-	"github.com/LanthornHQ/iris/internal/imageutil"
 )
 
 const (
@@ -35,6 +36,7 @@ type chromedpDriver struct {
 	cancel     context.CancelFunc
 	logger     *slog.Logger
 	timeout    time.Duration
+	cfg        Config
 }
 
 const stealthJS = `(function() {
@@ -203,6 +205,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		cancel:     func() { browserCancel(); allocCancel() },
 		logger:     logger,
 		timeout:    timeout,
+		cfg:        cfg,
 	}
 
 	logger.InfoContext(ctx, "starting Chrome",
@@ -252,30 +255,34 @@ func (d *chromedpDriver) Navigate(ctx context.Context, url string) error {
 }
 
 func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.logger.InfoContext(ctx, "click", "x", x, "y", y, "button", button)
-	actionCtx, cancel := d.withTimeout(ctx)
-	defer cancel()
-	btn := mouseButton(button)
-	return chromedp.Run(actionCtx,
-		mouseMove(x, y),
-		mousePress(x, y, btn, 1),
-		mouseRelease(x, y, btn, 1),
-	)
+	d.logger.InfoContext(ctx, "click via xdotool", "x", x, "y", y, "button", button)
+	btnNum := "1"
+	switch button {
+	case "right":
+		btnNum = "3"
+	case "middle":
+		btnNum = "2"
+	}
+	cmd := exec.CommandContext(ctx, "xdotool",
+		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
+		"click", btnNum)
+	cmd.Env = append(os.Environ(), "DISPLAY=:99")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("xdotool click at (%d,%d): %w: %s", x, y, err, out)
+	}
+	return nil
 }
 
 func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.logger.InfoContext(ctx, "double_click", "x", x, "y", y)
-	actionCtx, cancel := d.withTimeout(ctx)
-	defer cancel()
-	return chromedp.Run(actionCtx,
-		mouseMove(x, y),
-		mousePress(x, y, input.Left, doubleClickCount),
-		mouseRelease(x, y, input.Left, doubleClickCount),
-	)
+	d.logger.InfoContext(ctx, "double_click via xdotool", "x", x, "y", y)
+	cmd := exec.CommandContext(ctx, "xdotool",
+		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
+		"click", "--repeat", "2", "--delay", "100", "1")
+	cmd.Env = append(os.Environ(), "DISPLAY=:99")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("xdotool double-click at (%d,%d): %w: %s", x, y, err, out)
+	}
+	return nil
 }
 
 func (d *chromedpDriver) Type(ctx context.Context, text string, delayMs int) error {
@@ -333,32 +340,30 @@ func (d *chromedpDriver) Scroll(ctx context.Context, direction string, clicks in
 func (d *chromedpDriver) Screenshot(ctx context.Context) (string, int, int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.logger.DebugContext(ctx, "screenshot starting")
-	actionCtx, cancel := d.withTimeout(ctx)
-	defer cancel()
+	d.logger.DebugContext(ctx, "desktop screenshot starting")
 
-	var buf []byte
-	if err := chromedp.Run(actionCtx, chromedp.ActionFunc(func(ctx context.Context) error {
-		var err error
-		buf, err = page.CaptureScreenshot().
-			WithFormat(page.CaptureScreenshotFormatJpeg).
-			WithQuality(imageutil.DefaultJPEGQuality).
-			Do(ctx)
-		return err
-	})); err != nil {
-		return "", 0, 0, fmt.Errorf("screenshot failed: %w", err)
+	path := fmt.Sprintf("/tmp/iris-ss-%d.png", time.Now().UnixMilli())
+	cmd := exec.CommandContext(ctx, "scrot", "--silent", path)
+	cmd.Env = append(os.Environ(), "DISPLAY=:99")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", 0, 0, fmt.Errorf("desktop screenshot (scrot) failed: %w: %s", err, out)
 	}
+	defer os.Remove(path)
 
-	cfg, err := jpeg.DecodeConfig(bytes.NewReader(buf))
+	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("screenshot: jpeg decode config failed: %w", err)
+		return "", 0, 0, fmt.Errorf("reading desktop screenshot: %w", err)
 	}
 
-	w := cfg.Width
-	h := cfg.Height
-	encoded := base64.StdEncoding.EncodeToString(buf)
-	d.logger.DebugContext(ctx, "screenshot captured", "width", w, "height", h, "base64_len", len(encoded))
-	return encoded, w, h, nil
+	pngCfg, err := png.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return "", 0, 0, fmt.Errorf("decoding desktop screenshot config: %w", err)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(raw)
+	d.logger.DebugContext(ctx, "desktop screenshot captured",
+		"width", pngCfg.Width, "height", pngCfg.Height, "base64_len", len(encoded))
+	return encoded, pngCfg.Width, pngCfg.Height, nil
 }
 
 func (d *chromedpDriver) checkMutationCount(ctx context.Context, checkJS string) (int, error) {
@@ -964,34 +969,6 @@ func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, cont
 	return tctx, func() { stop(); cancel() }
 }
 
-func mouseButton(button string) input.MouseButton {
-	switch button {
-	case "right":
-		return input.Right
-	case "middle":
-		return input.Middle
-	default:
-		return input.Left
-	}
-}
-
-func mouseMove(x, y int) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MouseMoved, float64(x), float64(y)).Do(ctx)
-	})
-}
-
-func mousePress(x, y int, btn input.MouseButton, clickCount int) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MousePressed, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
-	})
-}
-
-func mouseRelease(x, y int, btn input.MouseButton, clickCount int) chromedp.Action {
-	return chromedp.ActionFunc(func(ctx context.Context) error {
-		return input.DispatchMouseEvent(input.MouseReleased, float64(x), float64(y)).WithButton(btn).WithClickCount(int64(clickCount)).Do(ctx)
-	})
-}
 
 type keySegment struct {
 	keys     string

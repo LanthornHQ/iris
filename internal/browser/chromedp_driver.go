@@ -196,7 +196,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		return nil, fmt.Errorf("creating Chrome user data dir: %w", err)
 	}
 	if err := writeChromePrefs(tmpDataDir); err != nil {
-		os.RemoveAll(tmpDataDir)
+		_ = os.RemoveAll(tmpDataDir)
 		return nil, fmt.Errorf("writing Chrome preferences: %w", err)
 	}
 
@@ -282,7 +282,7 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) err
 	case "middle":
 		btnNum = "2"
 	}
-	cmd := exec.CommandContext(ctx, "xdotool",
+	cmd := exec.CommandContext(ctx, "xdotool", //nolint:gosec // xdotool args are sanitized ints
 		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
 		"click", btnNum)
 	cmd.Env = append(os.Environ(), "DISPLAY=:99")
@@ -294,7 +294,7 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) err
 
 func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 	d.logger.InfoContext(ctx, "double_click via xdotool", "x", x, "y", y)
-	cmd := exec.CommandContext(ctx, "xdotool",
+	cmd := exec.CommandContext(ctx, "xdotool", //nolint:gosec // xdotool args are sanitized ints
 		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
 		"click", "--repeat", "2", "--delay", "100", "1")
 	cmd.Env = append(os.Environ(), "DISPLAY=:99")
@@ -978,7 +978,7 @@ func (d *chromedpDriver) Close() error {
 	d.logger.Info("closing browser")
 	d.cancel()
 	if d.userDataDir != "" {
-		os.RemoveAll(d.userDataDir)
+		_ = os.RemoveAll(d.userDataDir)
 	}
 	return nil
 }
@@ -988,7 +988,7 @@ func (d *chromedpDriver) Close() error {
 // password-breach dialogs at the profile level (more reliable than feature flags).
 func writeChromePrefs(dataDir string) error {
 	defaultDir := filepath.Join(dataDir, "Default")
-	if err := os.MkdirAll(defaultDir, 0o755); err != nil {
+	if err := os.MkdirAll(defaultDir, 0o750); err != nil {
 		return err
 	}
 	prefs := map[string]any{
@@ -1008,7 +1008,7 @@ func writeChromePrefs(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o600); err != nil {
 		return err
 	}
 
@@ -1023,7 +1023,7 @@ func writeChromePrefs(dataDir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dataDir, "Local State"), ls, 0o644)
+	return os.WriteFile(filepath.Join(dataDir, "Local State"), ls, 0o600)
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

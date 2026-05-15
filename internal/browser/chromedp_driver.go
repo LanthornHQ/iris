@@ -30,6 +30,7 @@ const (
 	defaultTimeout      = 30 * time.Second
 	doubleClickCount    = 2
 	scrollDeltaPerClick = 300
+	contentSettingBlock = 2
 )
 
 type chromedpDriver struct {
@@ -82,6 +83,10 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-hang-monitor", true),
 		chromedp.Flag("disable-prompt-on-repost", true),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("disable-client-side-phishing-detection", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.Flag("disable-breakpad", true),
 
 		// --- Disable features: UI chrome, telemetry, consent popups, password/safety UI ---
 		chromedp.Flag("disable-features",
@@ -996,10 +1001,15 @@ func writeChromePrefs(dataDir string) error {
 			"password_manager_enabled":    false,
 			"credentials_enable_service":  false,
 			"credentials_enable_autosign": false,
+			"default_content_setting_values": map[string]any{
+				"notifications": contentSettingBlock,
+				"geolocation":   contentSettingBlock,
+			},
 		},
 		"safebrowsing": map[string]any{
-			"enabled":  false,
-			"enhanced": false,
+			"enabled":        false,
+			"enhanced":       false,
+			"proceed_anyway": true,
 		},
 		"credentials_enable_service": false,
 		"password_manager_enabled":   false,

@@ -30,6 +30,7 @@ const (
 	defaultTimeout      = 30 * time.Second
 	doubleClickCount    = 2
 	scrollDeltaPerClick = 300
+	contentSettingBlock = 2
 )
 
 type chromedpDriver struct {
@@ -82,6 +83,10 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-hang-monitor", true),
 		chromedp.Flag("disable-prompt-on-repost", true),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("disable-client-side-phishing-detection", true),
+		chromedp.Flag("ignore-certificate-errors", true),
+		chromedp.Flag("disable-breakpad", true),
 
 		// --- Disable features: UI chrome, telemetry, consent popups, password/safety UI ---
 		chromedp.Flag("disable-features",
@@ -94,7 +99,7 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 				"PasswordManager,AutofillEnableToolbarStatusChip,"+
 				// Disable Safe Browsing password breach detection ("Change your password" modal)
 				"SafeBrowsing,PasswordProtection,SafeBrowsingRealTimeUrlLookup,"+
-				"SafeBrowsingEnhancedProtection"),
+				"SafeBrowsingEnhancedProtection,CredentialsEnableService,PasswordImport"),
 
 		// Tell Chrome to skip its own consent/privacy-sandbox dialogs.
 		chromedp.Flag("enable-features", "PrivacySandboxConsentExemption"),
@@ -119,6 +124,8 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 
 		// --- Credentials ---
 		chromedp.Flag("password-store", "basic"),
+		chromedp.Flag("enable-credentials-service", false),
+		chromedp.Flag("disable-popup-blocking", true),
 
 		// --- Language / locale ---
 		chromedp.Flag("lang", "en-US"),
@@ -194,7 +201,7 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 		return nil, fmt.Errorf("creating Chrome user data dir: %w", err)
 	}
 	if err := writeChromePrefs(tmpDataDir); err != nil {
-		os.RemoveAll(tmpDataDir)
+		_ = os.RemoveAll(tmpDataDir)
 		return nil, fmt.Errorf("writing Chrome preferences: %w", err)
 	}
 
@@ -280,7 +287,7 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) err
 	case "middle":
 		btnNum = "2"
 	}
-	cmd := exec.CommandContext(ctx, "xdotool",
+	cmd := exec.CommandContext(ctx, "xdotool", //nolint:gosec // xdotool args are sanitized ints
 		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
 		"click", btnNum)
 	cmd.Env = append(os.Environ(), "DISPLAY=:99")
@@ -292,7 +299,7 @@ func (d *chromedpDriver) Click(ctx context.Context, x, y int, button string) err
 
 func (d *chromedpDriver) DoubleClick(ctx context.Context, x, y int) error {
 	d.logger.InfoContext(ctx, "double_click via xdotool", "x", x, "y", y)
-	cmd := exec.CommandContext(ctx, "xdotool",
+	cmd := exec.CommandContext(ctx, "xdotool", //nolint:gosec // xdotool args are sanitized ints
 		"mousemove", "--sync", strconv.Itoa(x), strconv.Itoa(y),
 		"click", "--repeat", "2", "--delay", "100", "1")
 	cmd.Env = append(os.Environ(), "DISPLAY=:99")
@@ -976,7 +983,7 @@ func (d *chromedpDriver) Close() error {
 	d.logger.Info("closing browser")
 	d.cancel()
 	if d.userDataDir != "" {
-		os.RemoveAll(d.userDataDir)
+		_ = os.RemoveAll(d.userDataDir)
 	}
 	return nil
 }
@@ -986,25 +993,47 @@ func (d *chromedpDriver) Close() error {
 // password-breach dialogs at the profile level (more reliable than feature flags).
 func writeChromePrefs(dataDir string) error {
 	defaultDir := filepath.Join(dataDir, "Default")
-	if err := os.MkdirAll(defaultDir, 0o755); err != nil {
+	if err := os.MkdirAll(defaultDir, 0o750); err != nil {
 		return err
 	}
 	prefs := map[string]any{
 		"profile": map[string]any{
-			"password_manager_enabled":  false,
-			"credentials_enable_service": false,
+			"password_manager_enabled":    false,
+			"credentials_enable_service":  false,
 			"credentials_enable_autosign": false,
+			"default_content_setting_values": map[string]any{
+				"notifications": contentSettingBlock,
+				"geolocation":   contentSettingBlock,
+			},
 		},
 		"safebrowsing": map[string]any{
-			"enabled":  false,
-			"enhanced": false,
+			"enabled":        false,
+			"enhanced":       false,
+			"proceed_anyway": true,
 		},
+		"credentials_enable_service": false,
+		"password_manager_enabled":   false,
 	}
 	b, err := json.Marshal(prefs)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o644)
+	if err := os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o600); err != nil {
+		return err
+	}
+
+	localState := map[string]any{
+		"safebrowsing": map[string]any{
+			"enabled":  false,
+			"enhanced": false,
+		},
+		"credentials_enable_service": false,
+	}
+	ls, err := json.Marshal(localState)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dataDir, "Local State"), ls, 0o600)
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -1014,7 +1043,6 @@ func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, cont
 	stop := context.AfterFunc(ctx, cancel)
 	return tctx, func() { stop(); cancel() }
 }
-
 
 type keySegment struct {
 	keys     string

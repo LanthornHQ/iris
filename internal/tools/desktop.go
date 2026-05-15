@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"image/png"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -51,6 +53,11 @@ func (t *DesktopScreenshot) Execute(ctx context.Context, _ map[string]any) (any,
 		return nil, fmt.Errorf("reading desktop screenshot: %w", err)
 	}
 
+	pngCfg, err := png.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("decoding desktop screenshot config: %w", err)
+	}
+
 	b64 := base64.StdEncoding.EncodeToString(raw)
 	elapsed := time.Since(start)
 	t.Logger.InfoContext(ctx, "desktop screenshot captured",
@@ -58,7 +65,7 @@ func (t *DesktopScreenshot) Execute(ctx context.Context, _ map[string]any) (any,
 
 	return map[string]any{
 		"image_base64": b64,
-		"width":        1920,
-		"height":       1080,
+		"width":        pngCfg.Width,
+		"height":       pngCfg.Height,
 	}, nil
 }

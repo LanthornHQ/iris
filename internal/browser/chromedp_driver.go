@@ -94,7 +94,7 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 				"PasswordManager,AutofillEnableToolbarStatusChip,"+
 				// Disable Safe Browsing password breach detection ("Change your password" modal)
 				"SafeBrowsing,PasswordProtection,SafeBrowsingRealTimeUrlLookup,"+
-				"SafeBrowsingEnhancedProtection"),
+				"SafeBrowsingEnhancedProtection,CredentialsEnableService,PasswordImport"),
 
 		// Tell Chrome to skip its own consent/privacy-sandbox dialogs.
 		chromedp.Flag("enable-features", "PrivacySandboxConsentExemption"),
@@ -119,6 +119,8 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 
 		// --- Credentials ---
 		chromedp.Flag("password-store", "basic"),
+		chromedp.Flag("enable-credentials-service", false),
+		chromedp.Flag("disable-popup-blocking", true),
 
 		// --- Language / locale ---
 		chromedp.Flag("lang", "en-US"),
@@ -991,20 +993,37 @@ func writeChromePrefs(dataDir string) error {
 	}
 	prefs := map[string]any{
 		"profile": map[string]any{
-			"password_manager_enabled":  false,
-			"credentials_enable_service": false,
+			"password_manager_enabled":    false,
+			"credentials_enable_service":  false,
 			"credentials_enable_autosign": false,
 		},
 		"safebrowsing": map[string]any{
 			"enabled":  false,
 			"enhanced": false,
 		},
+		"credentials_enable_service": false,
+		"password_manager_enabled":   false,
 	}
 	b, err := json.Marshal(prefs)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o644)
+	if err := os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o644); err != nil {
+		return err
+	}
+
+	localState := map[string]any{
+		"safebrowsing": map[string]any{
+			"enabled":  false,
+			"enhanced": false,
+		},
+		"credentials_enable_service": false,
+	}
+	ls, err := json.Marshal(localState)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dataDir, "Local State"), ls, 0o644)
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -1014,7 +1033,6 @@ func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, cont
 	stop := context.AfterFunc(ctx, cancel)
 	return tctx, func() { stop(); cancel() }
 }
-
 
 type keySegment struct {
 	keys     string

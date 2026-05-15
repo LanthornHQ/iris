@@ -2,11 +2,8 @@ package tools
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
-	"os"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -104,13 +101,6 @@ func (t *Screenshot) Execute(ctx context.Context, args map[string]any) (any, err
 		return nil, fmt.Errorf("screenshot failed: %w", err)
 	}
 
-	// Always try a full desktop capture via scrot so any overlapping UI
-	// (password manager popups, OS-level overlays) is visible in every frame.
-	// Fall back to the viewport capture if scrot is unavailable.
-	if desktopB64, ok := scrotCapture(ctx, t.Logger); ok {
-		b64 = desktopB64
-	}
-
 	elapsed := time.Since(start)
 	t.Logger.InfoContext(ctx, "screenshot captured", "width", w, "height", h, "base64_len", len(b64), "elapsed_ms", elapsed.Milliseconds())
 
@@ -145,23 +135,4 @@ func (t *Screenshot) applyMarks(
 		return nil, false, nil
 	}
 	return res, true, nil
-}
-
-// scrotCapture takes a full Xvfb desktop screenshot via scrot.
-// Returns the base64-encoded PNG and true on success; empty string and false otherwise.
-func scrotCapture(ctx context.Context, logger *slog.Logger) (string, bool) {
-	path := fmt.Sprintf("/tmp/iris-desktop-%d.png", time.Now().UnixMilli())
-	cmd := exec.CommandContext(ctx, "scrot", "--silent", path)
-	cmd.Env = append(os.Environ(), "DISPLAY=:99")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		logger.WarnContext(ctx, "scrot desktop capture failed", "error", err, "output", string(out))
-		return "", false
-	}
-	defer os.Remove(path)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		logger.WarnContext(ctx, "reading scrot file failed", "error", err)
-		return "", false
-	}
-	return base64.StdEncoding.EncodeToString(raw), true
 }

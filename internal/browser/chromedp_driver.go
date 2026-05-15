@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/png"
@@ -11,6 +12,7 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,12 +33,13 @@ const (
 )
 
 type chromedpDriver struct {
-	mu         sync.Mutex
-	browserCtx context.Context
-	cancel     context.CancelFunc
-	logger     *slog.Logger
-	timeout    time.Duration
-	cfg        Config
+	mu          sync.Mutex
+	browserCtx  context.Context
+	cancel      context.CancelFunc
+	logger      *slog.Logger
+	timeout     time.Duration
+	cfg         Config
+	userDataDir string
 }
 
 const stealthJS = `(function() {
@@ -183,7 +186,20 @@ func buildCookies(initial []CookieDef, bypassGoogleConsent bool) []*network.Cook
 }
 
 func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*chromedpDriver, error) {
+	// Create a temporary Chrome user-data directory with preferences that reliably
+	// suppress password-save bubbles and Safe Browsing password-breach modals.
+	// Chrome often ignores --disable-features for security UX; profile prefs are authoritative.
+	tmpDataDir, err := os.MkdirTemp("", "iris-chrome-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating Chrome user data dir: %w", err)
+	}
+	if err := writeChromePrefs(tmpDataDir); err != nil {
+		os.RemoveAll(tmpDataDir)
+		return nil, fmt.Errorf("writing Chrome preferences: %w", err)
+	}
+
 	allocatorOpts := buildAllocatorOpts(cfg)
+	allocatorOpts = append(allocatorOpts, chromedp.UserDataDir(tmpDataDir))
 
 	if cfg.ChromePath != "" {
 		allocatorOpts = append(allocatorOpts, chromedp.ExecPath(cfg.ChromePath))
@@ -201,11 +217,12 @@ func newChromedpDriver(ctx context.Context, logger *slog.Logger, cfg Config) (*c
 	}
 
 	d := &chromedpDriver{
-		browserCtx: browserCtx,
-		cancel:     func() { browserCancel(); allocCancel() },
-		logger:     logger,
-		timeout:    timeout,
-		cfg:        cfg,
+		browserCtx:  browserCtx,
+		cancel:      func() { browserCancel(); allocCancel() },
+		logger:      logger,
+		timeout:     timeout,
+		cfg:         cfg,
+		userDataDir: tmpDataDir,
 	}
 
 	logger.InfoContext(ctx, "starting Chrome",
@@ -958,7 +975,36 @@ func (d *chromedpDriver) Close() error {
 	defer d.mu.Unlock()
 	d.logger.Info("closing browser")
 	d.cancel()
+	if d.userDataDir != "" {
+		os.RemoveAll(d.userDataDir)
+	}
 	return nil
+}
+
+// writeChromePrefs writes a Default/Preferences file into a Chrome user-data
+// directory to suppress password-manager save prompts and Safe Browsing
+// password-breach dialogs at the profile level (more reliable than feature flags).
+func writeChromePrefs(dataDir string) error {
+	defaultDir := filepath.Join(dataDir, "Default")
+	if err := os.MkdirAll(defaultDir, 0o755); err != nil {
+		return err
+	}
+	prefs := map[string]any{
+		"profile": map[string]any{
+			"password_manager_enabled":  false,
+			"credentials_enable_service": false,
+			"credentials_enable_autosign": false,
+		},
+		"safebrowsing": map[string]any{
+			"enabled":  false,
+			"enhanced": false,
+		},
+	}
+	b, err := json.Marshal(prefs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(defaultDir, "Preferences"), b, 0o644)
 }
 
 func (d *chromedpDriver) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

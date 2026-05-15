@@ -11,6 +11,7 @@ ENV IRIS_ANNOTATE_CLICKS=1
 RUN apt-get update && apt-get install -y \
     xvfb \
     xauth \
+    scrot \
     ca-certificates \
     wget \
     gnupg \

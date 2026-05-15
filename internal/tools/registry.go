@@ -32,4 +32,5 @@ func (r *ToolRegistry) RegisterAll(s *mcp.Server) {
 	s.RegisterTool(&WaitForStable{Logger: r.Logger, Driver: r.Driver})
 	s.RegisterTool(&Sleep{Logger: r.Logger})
 	s.RegisterTool(&GetDatetime{Logger: r.Logger})
+	s.RegisterTool(&DesktopScreenshot{Logger: r.Logger})
 }

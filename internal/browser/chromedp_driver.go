@@ -78,17 +78,22 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-prompt-on-repost", true),
 		chromedp.Flag("autoplay-policy", "no-user-gesture-required"),
 
-		// --- Disable features: UI chrome, telemetry, consent popups ---
+		// --- Disable features: UI chrome, telemetry, consent popups, password UI ---
 		chromedp.Flag("disable-features",
 			"SearchEngineChoice,SearchEngineChoiceScreen,"+
 				"FirstRunDesktopRefresh,FirstRunDesktopChoiceScreenRefresh,FirstRunDesktopRevamp,"+
 				"PrivacySandboxSettings4,GpcConsent,TopicsFencingV3,ConsentBump,"+
 				"OptimizationGuideModelDownloading,OptimizationHints,"+
 				"OptimizationTargetPrediction,OptimizationHintsFetching,"+
-				"Translate,MediaRouter,Preload"),
+				"Translate,MediaRouter,Preload,"+
+				"PasswordManager,AutofillEnableToolbarStatusChip"),
 
 		// Tell Chrome to skip its own consent/privacy-sandbox dialogs.
 		chromedp.Flag("enable-features", "PrivacySandboxConsentExemption"),
+
+		// --- Disable extensions and password/autofill popups ---
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-save-password-bubble", true),
 
 		// --- Network & telemetry suppression ---
 		chromedp.Flag("disable-background-networking", true),

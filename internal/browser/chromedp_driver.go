@@ -106,6 +106,9 @@ func commonFlags(cfg Config) []chromedp.ExecAllocatorOption {
 		chromedp.Flag("disable-component-extensions-with-background-pages", true),
 		chromedp.Flag("no-pings", true),
 
+		// Suppress "unsupported flag" and automation infobars.
+		chromedp.Flag("test-type", true),
+
 		// --- Credentials ---
 		chromedp.Flag("password-store", "basic"),
 
